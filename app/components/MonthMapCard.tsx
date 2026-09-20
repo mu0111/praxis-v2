@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
+import { captureRef } from 'react-native-view-shot';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
@@ -44,6 +45,7 @@ export function MonthMapCard() {
   const { user } = useAuth();
   const { c } = useTheme();
   const [dots, setDots] = useState<MonthDot[]>([]);
+  const shotRef = useRef<View>(null);
   const [stats, setStats] = useState<MonthStats | null>(null);
 
   const load = useCallback(async () => {
@@ -109,10 +111,25 @@ export function MonthMapCard() {
 
   const denom = Math.max(dots.length - 1, 1);
 
-  const onShare = () => {
-    void Share.share({
-      message: `My month on Praxis: ${stats.reads} reads from ${stats.sources} sources${bothSides ? ' — both sides' : ''}. praxisnews.co`,
-    });
+  // Share the map itself, not a sentence about it (Ayuka, 2026-09-20 msg
+  // 1886): the panel (ink window + quadrant labels) is rasterised with
+  // react-native-view-shot and handed to the share sheet as an image, with
+  // the line as the caption. Falls back to text only if the capture fails.
+  const onShare = async () => {
+    const message = `My month on Praxis: ${stats.reads} reads from ${stats.sources} sources${bothSides ? ' — both sides' : ''}. praxisnews.co`;
+    let url: string | null = null;
+    try {
+      if (shotRef.current) {
+        url = await captureRef(shotRef, { format: 'png', quality: 1, result: 'tmpfile' });
+      }
+    } catch (error) {
+      console.warn('[MonthMapCard] map capture failed, sharing text', error);
+    }
+    try {
+      await Share.share(url ? { url, message } : { message });
+    } catch {
+      // The sheet was dismissed or unavailable; nothing to do.
+    }
   };
 
   return (
@@ -122,7 +139,7 @@ export function MonthMapCard() {
         <Text style={[s.lock, { color: c.textMuted }]}>ONLY YOU</Text>
       </View>
 
-      <View style={s.panelWrap}>
+      <View ref={shotRef} collapsable={false} style={s.panelWrap}>
         <Svg width={PANEL} height={PANEL}>
           <Rect x={0} y={0} width={PANEL} height={PANEL} rx={14} fill={INK} />
           <Line x1={HALF} y1={40} x2={HALF} y2={PANEL - 40} stroke={INK_LINE} strokeWidth={1} />
@@ -158,7 +175,7 @@ export function MonthMapCard() {
           <Text style={[s.statsStrong, { color: c.text }]}>{stats.sources}</Text> sources
           {bothSides ? ' · both sides' : ''}
         </Text>
-        <TouchableOpacity onPress={onShare} accessibilityLabel="Share your month">
+        <TouchableOpacity onPress={() => { void onShare(); }} accessibilityLabel="Share your month">
           <Text style={s.share}>Share ↗</Text>
         </TouchableOpacity>
       </View>

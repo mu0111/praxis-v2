@@ -463,32 +463,46 @@ export const ArticleCard = memo(function ArticleCard({
               </View>
             ) : null}
 
-            {selectedInsightRow ? (
-              <View style={s.backSection}>
-                <View
-                  style={[
-                    s.backInsightBubble,
-                    getInsightBubbleToneStyle(selectedInsightRow.tone),
-                  ]}
-                >
-                  <View style={s.backInsightTitleRow}>
-                    <View style={s.backInsightHeader}>
-                      {selectedInsightRow.id === 'lean' ? (
-                        <Ionicons name="swap-horizontal-outline" size={14} color="#F5F9FC" />
-                      ) : selectedInsightRow.id === 'style' ? (
-                        <Ionicons name="swap-vertical-outline" size={14} color="#F5F9FC" />
-                      ) : null}
-                      <Text style={s.backInsightTitle}>{selectedInsightRow.label}</Text>
+            {/* An open insight is a dropdown that FLOATS over the summary
+                (Ayuka, 2026-09-20 msg 1935): the summary keeps its place
+                underneath and nothing on the card moves. The host reserves
+                height for a long insight so the bubble stays inside the
+                scrollable content (absolute children add no height). */}
+            {backSummary || selectedInsightRow ? (
+              <View style={[s.backSection, selectedInsightRow ? s.backSummaryHost : null]}>
+                {backSummary ? <Text style={s.backSummary}>{backSummary}</Text> : null}
+                {selectedInsightRow ? (
+                  <View
+                    style={[
+                      s.backInsightBubble,
+                      getInsightBubbleToneStyle(selectedInsightRow.tone),
+                      s.backInsightFloating,
+                    ]}
+                  >
+                    {/* The tone tints are ~80% alpha (fine over the card, not
+                        over text). Opaque card-dark base, then the tint on
+                        top: same look as before, summary can't bleed through. */}
+                    <View style={[StyleSheet.absoluteFillObject, s.backInsightFloatingBase]} />
+                    <View
+                      style={[
+                        StyleSheet.absoluteFillObject,
+                        s.backInsightFloatingTint,
+                        getInsightBubbleToneStyle(selectedInsightRow.tone),
+                      ]}
+                    />
+                    <View style={s.backInsightTitleRow}>
+                      <View style={s.backInsightHeader}>
+                        {selectedInsightRow.id === 'lean' ? (
+                          <Ionicons name="swap-horizontal-outline" size={14} color="#F5F9FC" />
+                        ) : selectedInsightRow.id === 'style' ? (
+                          <Ionicons name="swap-vertical-outline" size={14} color="#F5F9FC" />
+                        ) : null}
+                        <Text style={s.backInsightTitle}>{selectedInsightRow.label}</Text>
+                      </View>
                     </View>
+                    <Text style={s.backBody}>{selectedInsightRow.text}</Text>
                   </View>
-                  <Text style={s.backBody}>{selectedInsightRow.text}</Text>
-                </View>
-              </View>
-            ) : null}
-
-            {backSummary ? (
-              <View style={s.backSection}>
-                <Text style={s.backSummary}>{backSummary}</Text>
+                ) : null}
               </View>
             ) : null}
 
@@ -595,6 +609,28 @@ const s = StyleSheet.create({
   },
   backSection: {
     gap: 6,
+  },
+  // Summary + floating insight share this box; the floor keeps a long
+  // insight inside the scrollable content.
+  backSummaryHost: {
+    minHeight: 210,
+  },
+  backInsightFloating: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    maxWidth: '100%',
+    alignSelf: 'stretch',
+    overflow: 'hidden',
+  },
+  backInsightFloatingBase: {
+    backgroundColor: '#0C1930',
+    borderRadius: 30,
+  },
+  backInsightFloatingTint: {
+    borderRadius: 30,
+    borderWidth: 0,
   },
   backChipRow: {
     flexDirection: 'row',
