@@ -211,6 +211,24 @@ export const writeDailyDigestDismissal = async (dismissed: boolean) => {
 
 // A lightweight, session-only handoff lets Graph reopen today's Digest
 // without adding another persistent Feed control.
+// Graph "Apply" while the Digest is on screen (Ayuka, 2026-09-21 voice 2031):
+// applying a Top News range keeps isTopNewsActive true, so the Digest stayed
+// put and the new range never showed. The Graph raises this flag; the feed
+// consumes it when it handles the next explicit request and dismisses the
+// Digest for the day, exactly as the pill tap does. In-memory on purpose: it
+// only ever needs to survive one navigation.
+let digestExitRequested = false;
+
+export const requestDailyDigestExit = () => {
+  digestExitRequested = true;
+};
+
+export const consumeDailyDigestExitRequest = (): boolean => {
+  const requested = digestExitRequested;
+  digestExitRequested = false;
+  return requested;
+};
+
 // Writers can also notify live subscribers: a push tapped while the feed is
 // ALREADY focused never re-runs its focus effect, so without this the
 // request sat unconsumed and fired on a later, unrelated tab switch

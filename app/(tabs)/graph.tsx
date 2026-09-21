@@ -50,7 +50,7 @@ import {
 } from '../lib/mockPreviewData';
 import { buildHref } from '../lib/buildHref';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
-import { writeDailyDigestOpenRequest } from '../lib/dailyDigest';
+import { requestDailyDigestExit, writeDailyDigestOpenRequest } from '../lib/dailyDigest';
 import { searchGraphArticles } from '../hooks/useFeedArticles';
 
 const logoAp = require('../../assets/logos/ap.png');
@@ -1219,6 +1219,8 @@ export default function GraphScreen() {
 
       setHasAppliedTopNewsFilter(Boolean(nextTopNewsGraphFilter));
       closeDropdown();
+      // Applying a range is a request to see the range, not today's Digest.
+      requestDailyDigestExit();
       applyTopNewsPreferences(nextTopNewsGraphFilter);
 
       router.navigate('/');

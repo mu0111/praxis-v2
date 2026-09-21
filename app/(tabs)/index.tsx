@@ -42,6 +42,7 @@ import {
 } from '../lib/newsPreferences';
 import {
   buildCanonicalDailyDigestFeed,
+  consumeDailyDigestExitRequest,
   markDailyDigestArticleComplete,
   readDailyDigestDismissal,
   readDailyDigestOpenRequest,
@@ -616,6 +617,12 @@ export default function FeedScreen() {
 
     if (hasExplicitNewRequest) {
       lastHandledRequestNonceRef.current = preferences.requestNonce;
+      // Graph "Apply" while the Digest was showing: leave the Digest for the
+      // day so the applied range is what comes up (Ayuka, 2026-09-21).
+      if (consumeDailyDigestExitRequest()) {
+        setIsDigestDismissed(true);
+        void writeDailyDigestDismissal(true);
+      }
     }
 
     void loadFromPreferences({
