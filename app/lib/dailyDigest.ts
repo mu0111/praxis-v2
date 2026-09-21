@@ -531,6 +531,19 @@ const finalizeDigestSelection = async (
     articlesSnapshot: digestArticles,
   };
 
+  // An empty selection (empty pool at cold start) is not a digest. Never
+  // persist it or record it in history; the caller rebuilds when articles exist.
+  if (digestArticles.length === 0) {
+    return {
+      state,
+      displayArticles: articles,
+      digestArticles,
+      completedCount: 0,
+      totalCount: 0,
+      isComplete: false,
+    };
+  }
+
   await writeStorageValue(state);
 
   // Record today's picks so the next days can avoid repeating them.

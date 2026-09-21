@@ -958,12 +958,25 @@ export default function FeedScreen() {
     transitionDeckMode,
   ]);
 
+  // A digest push tapped from a killed app consumes its open request before
+  // the first feed load lands (Charlie, 9/20: "feed not ready"). The request
+  // is remembered here and honoured by the build effect below once articles
+  // exist, instead of building an empty digest from an empty pool.
+  const pendingDigestOpenRef = useRef(false);
+  // The pool an empty digest was last built from. Rebuilding an empty digest
+  // from the SAME pool would loop (each build is a new object in the deps).
+  const emptyDigestPoolRef = useRef<Article[] | null>(null);
+
   useEffect(() => {
     if (
       !preferences.isTopNewsActive ||
       !isDigestDismissalLoaded ||
       isDigestDismissed ||
-      dailyDigestFeed ||
+      // An empty digest (built from an empty pool) must be rebuilt once a new
+      // pool exists, or the feed shows "No story is ready" while holding 60.
+      (dailyDigestFeed && (
+        dailyDigestFeed.digestArticles.length > 0 || emptyDigestPoolRef.current === articles
+      )) ||
       articles.length === 0 ||
       feedMode !== 'top-news' ||
       isStreaming
@@ -972,7 +985,13 @@ export default function FeedScreen() {
     let cancelled = false;
     void buildCanonicalDailyDigestFeed(articles).then((nextDigestFeed) => {
       if (cancelled) return;
+      emptyDigestPoolRef.current = nextDigestFeed.digestArticles.length === 0 ? articles : null;
       setDailyDigestFeed(nextDigestFeed);
+      if (pendingDigestOpenRef.current) {
+        pendingDigestOpenRef.current = false;
+        setIsViewingCompletedDigest(nextDigestFeed.isComplete);
+        resetDeckPosition();
+      }
     });
 
     return () => {
@@ -986,6 +1005,7 @@ export default function FeedScreen() {
     feedMode,
     isStreaming,
     preferences.isTopNewsActive,
+    resetDeckPosition,
   ]);
 
   const handleEditQuery = useCallback(() => {
@@ -1026,12 +1046,21 @@ export default function FeedScreen() {
           topNewsGraphFilter: null,
           profileTopics,
         });
-    const nextDigestFeed = await buildCanonicalDailyDigestFeed(sourceArticles);
-
-    setDailyDigestFeed(nextDigestFeed);
     setIsDigestDismissed(false);
     void writeDailyDigestDismissal(false);
     applyTopNewsPreferences(null);
+
+    if (sourceArticles.length === 0) {
+      // Nothing to select from yet (cold start from a push tap). Leave the
+      // digest unbuilt; the build effect finishes the open once the feed lands.
+      pendingDigestOpenRef.current = true;
+      setDailyDigestFeed(null);
+      return;
+    }
+
+    const nextDigestFeed = await buildCanonicalDailyDigestFeed(sourceArticles);
+
+    setDailyDigestFeed(nextDigestFeed);
     setIsViewingCompletedDigest(nextDigestFeed.isComplete);
     resetDeckPosition();
   }, [
