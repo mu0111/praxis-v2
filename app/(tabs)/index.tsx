@@ -97,7 +97,7 @@ import {
   recordPromptDeclined,
   recordPromptGranted,
 } from '../lib/notificationPrompt';
-import { askPushPermission } from '../utils/notifications';
+import { askPushPermission, syncStreakBadge } from '../utils/notifications';
 import { useBadgeCelebration } from '../components/BadgeCelebration';
 
 const ARTICLES_PER_PAGE = 20;
@@ -1423,6 +1423,17 @@ export default function FeedScreen() {
     sharedStory,
     user,
   ]);
+
+  // Mirror the header streak onto the app-icon badge (Ayuka, 9/20). Same
+  // source of truth as the pill: account streak when signed in, the device
+  // count for guests. Skipped while the account value is still loading.
+  useEffect(() => {
+    const value = user
+      ? (profile ? (profile.current_streak ?? 0) : cachedStreak)
+      : localStreakCount;
+    if (typeof value !== 'number') return;
+    void syncStreakBadge(value);
+  }, [user, profile?.current_streak, cachedStreak, localStreakCount]);
 
   const retreat = useCallback(() => {
     setCurrentIndex(Math.max(0, index - 1));

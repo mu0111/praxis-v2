@@ -225,7 +225,7 @@ serve(async (req) => {
     const { data: profiles } = userIds.length > 0
       ? await supabase
           .from('profiles')
-          .select('id, notify_digest, streak_last_completed_date')
+          .select('id, notify_digest, streak_last_completed_date, current_streak')
           .in('id', userIds)
       : { data: [] };
 
@@ -286,6 +286,10 @@ serve(async (req) => {
       ) && (!lastDone || lastDone < lastThreeDays[2]);
       if (ignoredThree) continue;
 
+      // The app-icon badge is the reading streak (app/utils/notifications.ts
+      // syncStreakBadge). Carrying it here keeps the number right on days the
+      // app was not opened; a lapsed streak arrives as 0 and clears the badge.
+      const badge = Math.max(0, Number(p.current_streak) || 0);
       for (const token of byUser.get(p.id)!) {
         messages.push({
           to: token,
@@ -293,6 +297,7 @@ serve(async (req) => {
           body: line,
           data: { type: 'digest' },
           sound: 'default',
+          badge,
         });
       }
       logRows.push({ user_id: p.id, push_type: 'digest', meta: { line, titles } });

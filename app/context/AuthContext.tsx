@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
-import { registerPushToken, unregisterPushToken } from '../utils/notifications';
+import { registerPushToken, syncStreakBadge, unregisterPushToken } from '../utils/notifications';
 import { readGuestMode, writeGuestMode } from '../lib/guestMode';
 import { trackAuth } from '../lib/analytics';
 import { transferGuestStreakToProfile } from '../lib/digestStreak';
@@ -160,6 +160,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (userId) {
       await unregisterPushToken(userId).catch(() => {});
     }
+    // The icon badge is this account's streak; it must not outlive the session.
+    await syncStreakBadge(0).catch(() => {});
 
     const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) throw error;

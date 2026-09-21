@@ -86,6 +86,22 @@ export async function askPushPermission(userId: string | null): Promise<boolean>
   }
 }
 
+// The app-icon badge shows the reading streak (Ayuka, 9/20: "like a regular
+// notification icon for the streak"). iOS only honours it once notifications
+// were allowed; without that this is a silent no-op. 0 clears the badge.
+// The morning digest push carries the same number so it stays right between
+// launches (send-daily-digest-push sets `badge`).
+export async function syncStreakBadge(streak: number | null | undefined): Promise<void> {
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+    const value = Math.max(0, Math.floor(Number(streak) || 0));
+    await Notifications.setBadgeCountAsync(value);
+  } catch {
+    // Non-fatal — the badge is decoration
+  }
+}
+
 export async function unregisterPushToken(userId: string): Promise<void> {
   try {
     const { data } = await Notifications.getExpoPushTokenAsync();
