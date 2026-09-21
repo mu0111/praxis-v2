@@ -14,6 +14,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { Article } from '../../hooks/useFeedArticles';
+import { getSourceLogo } from '../../lib/sourceLogos';
 
 export const getArticleCardDimensions = (
   screenWidth: number,
@@ -148,6 +149,7 @@ export const ArticleCard = memo(function ArticleCard({
   const mapTop = ((1 - clampCoord(article.y)) / 2) * MAP_BOX_SIZE;
   const cardImageUri = hasImageLoadError ? null : article.image_url;
   const sourceName = article.source || article.publisher?.name || 'Unknown';
+  const placeholderLogo = cardImageUri ? null : getSourceLogo(sourceName);
   const updatedLabel = `Updated ${formatTimeAgo(article.ts_pub)}`;
   const backSummary = article.meta?.summary || article.lede || null;
   const insightRows = [
@@ -289,7 +291,18 @@ export const ArticleCard = memo(function ArticleCard({
               }}
             />
           ) : (
-            <View style={[s.imagePlaceholder, { backgroundColor: FALLBACK_CARD_BG }]} />
+            // No picture (WSJ walls its pages; see lib/sourceLogos): plain cream
+            // with the source mark, Ayuka's pick 2026-09-21 (msg 2042).
+            <View style={[s.imagePlaceholder, { backgroundColor: FALLBACK_CARD_BG }]}>
+              {placeholderLogo ? (
+                <Image
+                  source={placeholderLogo}
+                  style={s.placeholderLogo}
+                  contentFit="contain"
+                  cachePolicy="memory"
+                />
+              ) : null}
+            </View>
           )}
 
           <LinearGradient
@@ -551,7 +564,14 @@ const s = StyleSheet.create({
     backgroundColor: '#0A1222',
   },
   image: { ...StyleSheet.absoluteFillObject },
-  imagePlaceholder: { ...StyleSheet.absoluteFillObject },
+  imagePlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // The gradient and headline own the lower third; keep the mark above them.
+    paddingBottom: '28%',
+  },
+  placeholderLogo: { width: 92, height: 92, borderRadius: 20, opacity: 0.92 },
   gradient: { ...StyleSheet.absoluteFillObject },
   topShade: {
     position: 'absolute',
