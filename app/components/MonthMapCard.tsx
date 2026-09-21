@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
+import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
@@ -186,10 +187,18 @@ export function MonthMapCard({ name }: MonthMapCardProps) {
         <Text style={[s.stats, { color: c.textMuted }]}>
           <Text style={[s.statsStrong, { color: c.text }]}>{stats.reads}</Text> reads ·{' '}
           <Text style={[s.statsStrong, { color: c.text }]}>{stats.sources}</Text> sources
-          {bothSides ? ' · both sides' : ''}
         </Text>
-        <TouchableOpacity onPress={() => { void onShare(); }} accessibilityLabel="Share your month">
-          <Text style={s.share}>Share ↗</Text>
+        {/* Solid pill (Ayuka's pick A, 9/20, re-asked 9/21 msg 2021): reads as a button,
+            one accent. "both sides" left the stats line since the headline already says it. */}
+        <TouchableOpacity
+          onPress={() => { void onShare(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Share your month"
+          activeOpacity={0.85}
+          style={s.share}
+        >
+          <Ionicons name="share-outline" size={13} color="#FFFFFF" />
+          <Text style={s.shareText}>Share</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -212,8 +221,17 @@ const s = StyleSheet.create({
   emptyOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: '#8E8877', fontSize: 12, fontWeight: '600' },
   insight: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3, marginTop: 12 },
-  foot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  foot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   stats: { fontSize: 12 },
   statsStrong: { fontWeight: '800' },
-  share: { fontSize: 12.5, fontWeight: '800', color: GREEN },
+  share: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: GREEN,
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  shareText: { fontSize: 12.5, fontWeight: '800', color: '#FFFFFF' },
 });
