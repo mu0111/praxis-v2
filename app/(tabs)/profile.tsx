@@ -388,8 +388,10 @@ export default function ProfileScreen() {
 
 
 
-        <MonthMapCard />
-        <View style={{ height: 32 }} />
+        <MonthMapCard name={profile.full_name?.trim().split(/\s+/)[0] || profile.username || undefined} />
+        {/* The floating tab bar overlays the scroll (66pt capsule + offset); at 32 the
+            month card's stats/Share rode under it (Ayuka, msgs 1704, 1979). */}
+        <View style={{ height: 116 }} />
       </ScrollView>
     </SafeAreaView>
   );

@@ -41,7 +41,14 @@ const monthStartIso = () => {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 };
 
-export function MonthMapCard() {
+interface MonthMapCardProps {
+  /** First name (or handle) of the reader, for the third-person share line. */
+  name?: string;
+}
+
+const APP_STORE_URL = 'https://apps.apple.com/app/id6742516634';
+
+export function MonthMapCard({ name }: MonthMapCardProps) {
   const { user } = useAuth();
   const { c } = useTheme();
   const [dots, setDots] = useState<MonthDot[]>([]);
@@ -116,7 +123,13 @@ export function MonthMapCard() {
   // react-native-view-shot and handed to the share sheet as an image, with
   // the line as the caption. Falls back to text only if the capture fails.
   const onShare = async () => {
-    const message = `My month on Praxis: ${stats.reads} reads from ${stats.sources} sources${bothSides ? ' — both sides' : ''}. praxisnews.co`;
+    // Caption in the website's voice (Ayuka's pick, 2026-09-21 msg 1993): tagline,
+    // what Praxis does, then the reader's month in third person, then the store link.
+    const whose = name ? `${name}'s month` : 'My month';
+    const message =
+      `Pick your news. Know your bias. Praxis maps every story you read by lean and by type, ` +
+      `so you see the whole landscape. ${whose}: ${stats.reads} stories, ${stats.sources} sources` +
+      `${bothSides ? ', both sides' : ''}. ${APP_STORE_URL}`;
     let url: string | null = null;
     try {
       if (shotRef.current) {
