@@ -124,13 +124,13 @@ export function MonthMapCard({ name }: MonthMapCardProps) {
   // react-native-view-shot and handed to the share sheet as an image, with
   // the line as the caption. Falls back to text only if the capture fails.
   const onShare = async () => {
-    // Caption in the website's voice (Ayuka's pick, 2026-09-21 msg 1993): tagline,
-    // what Praxis does, then the reader's month in third person, then the store link.
+    // Caption in the website's voice (Ayuka's pick, 2026-09-21 msgs 1993/2029): the
+    // tagline, the reader's month in third person, the store link. Kept short because
+    // it rides under the image in the share sheet.
     const whose = name ? `${name}'s month` : 'My month';
     const message =
-      `Pick your news. Know your bias. Praxis maps every story you read by lean and by type, ` +
-      `so you see the whole landscape. ${whose}: ${stats.reads} stories, ${stats.sources} sources` +
-      `${bothSides ? ', both sides' : ''}. ${APP_STORE_URL}`;
+      `Pick your news. Know your bias. ${whose} on Praxis: ${stats.reads} stories, ` +
+      `${stats.sources} sources${bothSides ? ', both sides' : ''}. ${APP_STORE_URL}`;
     let url: string | null = null;
     try {
       if (shotRef.current) {
