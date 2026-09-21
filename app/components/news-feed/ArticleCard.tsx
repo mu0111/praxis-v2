@@ -293,7 +293,14 @@ export const ArticleCard = memo(function ArticleCard({
           ) : (
             // No picture (WSJ walls its pages; see lib/sourceLogos): plain cream
             // with the source mark, Ayuka's pick 2026-09-21 (msg 2042).
-            <View style={[s.imagePlaceholder, { backgroundColor: FALLBACK_CARD_BG }]}>
+            <View
+              style={[
+                s.imagePlaceholder,
+                // The marks are opaque on white, so the panel goes white under a mark
+                // and the masthead sits on the page (his pick B, msg 2054).
+                { backgroundColor: placeholderLogo ? '#FFFFFF' : FALLBACK_CARD_BG },
+              ]}
+            >
               {placeholderLogo ? (
                 <Image
                   source={placeholderLogo}
@@ -571,7 +578,7 @@ const s = StyleSheet.create({
     // The gradient and headline own the lower third; keep the mark above them.
     paddingBottom: '28%',
   },
-  placeholderLogo: { width: 92, height: 92, borderRadius: 20, opacity: 0.92 },
+  placeholderLogo: { width: '66%', aspectRatio: 1 },
   gradient: { ...StyleSheet.absoluteFillObject },
   topShade: {
     position: 'absolute',
