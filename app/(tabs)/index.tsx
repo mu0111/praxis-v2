@@ -1952,12 +1952,19 @@ export default function FeedScreen() {
       ) : null}
 
       {shouldShowDigestProgress && isDailyDigestActive ? (
-        <View style={[s.digestProgressCard, s.digestProgressCardWithModeGap, { borderColor: '#C8D8B0' }]}>
+        <View
+          style={[
+            s.digestProgressCard,
+            s.digestProgressCardWithModeGap,
+            { borderColor: '#C8D8B0' },
+            isDigestProgressOpen && s.digestProgressCardOpen,
+          ]}
+        >
           <TouchableOpacity
             onPress={() => setIsDigestProgressOpen((open) => !open)}
             accessibilityRole="button"
             accessibilityLabel="Toggle Daily Digest progress"
-            style={s.digestProgressToggle}
+            style={[s.digestProgressToggle, isDigestProgressOpen && s.digestProgressToggleOpen]}
           >
             <Animated.View
               style={[
@@ -1982,6 +1989,17 @@ export default function FeedScreen() {
               entering={FadeInDown.duration(180)}
               style={s.digestProgressDetails}
             >
+              <View style={s.digestProgressDots}>
+                {Array.from({ length: digestTotalCount }, (_, dotIndex) => (
+                  <View
+                    key={dotIndex}
+                    style={[
+                      s.digestProgressDot,
+                      dotIndex < digestDisplayCompletedCount && s.digestProgressDotOn,
+                    ]}
+                  />
+                ))}
+              </View>
               <Text style={s.digestProgressDetailTitle}>{digestProgressTitle}</Text>
               <Text style={s.digestProgressDetailBody}>{digestProgressBody}</Text>
               {dailyDigestFeed.isComplete ? (
@@ -2009,10 +2027,9 @@ export default function FeedScreen() {
                   onPress={handleDigestPillPress}
                   accessibilityRole="button"
                   accessibilityLabel="Browse Top News instead"
-                  style={s.digestTopNewsButton}
+                  style={s.digestTopNewsLink}
                 >
-                  <Ionicons name="flame-outline" size={13} color="#A86532" />
-                  <Text style={s.digestTopNewsText}>Continue to Top News</Text>
+                  <Text style={s.digestTopNewsLinkText}>Skip to Top News →</Text>
                 </TouchableOpacity>
               )}
             </Animated.View>
@@ -2339,12 +2356,23 @@ const s = StyleSheet.create({
     // Digest completion, while leaving enough breathing room below the header.
     marginTop: 24,
   },
+  digestProgressCardOpen: {
+    // Open: the pill and its details read as one card, so square the join.
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
   digestProgressToggle: {
     minHeight: 44,
     justifyContent: 'center',
     overflow: 'hidden',
     backgroundColor: '#E9F0DF',
     borderRadius: 17,
+  },
+  digestProgressToggleOpen: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DCE6CF',
   },
   digestProgressHeader: {
     flexDirection: 'row',
@@ -2390,6 +2418,23 @@ const s = StyleSheet.create({
     shadowRadius: 16,
     elevation: 101,
   },
+  digestProgressDots: {
+    flexDirection: 'row',
+    gap: 7,
+    marginBottom: 9,
+  },
+  digestProgressDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#B5C79C',
+    backgroundColor: '#EEF3E6',
+  },
+  digestProgressDotOn: {
+    backgroundColor: '#6E9A5B',
+    borderColor: '#6E9A5B',
+  },
   digestProgressDetailTitle: {
     color: '#302D28',
     fontSize: 13,
@@ -2431,6 +2476,13 @@ const s = StyleSheet.create({
     borderColor: '#EDC9AE',
   },
   digestTopNewsText: { color: '#8A5B38', fontSize: 11, fontWeight: '700' },
+  digestTopNewsLink: {
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  digestTopNewsLinkText: { color: '#4C773E', fontSize: 12, fontWeight: '700' },
   digestCompletionOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
