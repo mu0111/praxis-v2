@@ -34,6 +34,19 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
+    // Only push for a follow that really exists, so a direct call can't fake one.
+    const { data: follow } = await supabase
+      .from('follows')
+      .select('follower_id')
+      .eq('follower_id', follower_id)
+      .eq('following_id', following_id)
+      .limit(1);
+    if (!follow?.length) {
+      return new Response(JSON.stringify({ sent: 0, error: 'No matching follow' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Respect the followed user's social switch, and collapse to one social push/hour.
     // (Blocked pairs can't create follows rows at all — DB trigger — so no block check here.)
     const { data: followedProfile } = await supabase

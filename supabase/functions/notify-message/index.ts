@@ -36,6 +36,29 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
+    // The caller must be the signed-in sender, and the push must match a message they
+    // actually sent, so nobody can push arbitrary text to a user by calling this directly.
+    const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+    const { data: { user: caller } } = await supabase.auth.getUser(token);
+    if (!caller || caller.id !== senderId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const { data: sent } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('sender_id', senderId)
+      .eq('recipient_id', recipientId)
+      .eq('body', message)
+      .gte('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
+      .limit(1);
+    if (!sent?.length) {
+      return new Response(JSON.stringify({ error: 'No matching message' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // No pushes between blocked pairs, and respect the recipient's social switch
     const { data: blocked } = await supabase.rpc('is_blocked_pair', { a: senderId, b: recipientId });
     if (blocked) {
