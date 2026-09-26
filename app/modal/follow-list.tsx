@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { fetchBlockedIds } from '../lib/moderation';
@@ -48,7 +48,8 @@ export default function FollowListModal() {
     }
   }, [authLoading, isGuestMode, user]);
 
-  useEffect(() => {
+  // Reload on focus so people followed from Find people show up on return.
+  useFocusEffect(useCallback(() => {
     let isActive = true;
 
     const load = async () => {
@@ -104,9 +105,12 @@ export default function FollowListModal() {
     return () => {
       isActive = false;
     };
-  }, [targetUserId, type, user?.id]);
+  }, [targetUserId, type, user?.id]));
 
   if (authLoading || isGuestMode || !user) return null;
+
+  const isOwnList = targetUserId === user.id;
+  const openFindPeople = () => router.push('/modal/find-people');
 
   return (
     <SafeAreaView style={s.container}>
@@ -115,7 +119,13 @@ export default function FollowListModal() {
           <Ionicons name="arrow-back" size={20} color={PAGE.text} />
         </TouchableOpacity>
         <Text style={s.title}>{type === 'followers' ? 'Followers' : 'Following'}</Text>
-        <View style={s.headerSpacer} />
+        {isOwnList ? (
+          <TouchableOpacity style={s.backButton} onPress={openFindPeople} accessibilityLabel="Find people">
+            <Ionicons name="add" size={22} color={PAGE.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={s.headerSpacer} />
+        )}
       </View>
 
       {loading ? (
