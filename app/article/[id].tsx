@@ -265,7 +265,9 @@ export default function ArticlePreviewScreen() {
       ? 'Saved in Praxis'
       : params.source_context === 'search'
         ? 'From search'
-        : 'Praxis context';
+        : params.source_context === 'feed'
+          ? 'From your feed'
+          : 'Praxis context';
   const framingTopics = article.topics.slice(0, 2).join(' and ') || 'the article’s central claim';
 
   return (
@@ -276,7 +278,13 @@ export default function ArticlePreviewScreen() {
         </TouchableOpacity>
         <View style={s.contextPill}>
           <Ionicons
-            name={params.source_context === 'saved' ? 'bookmark' : 'search-outline'}
+            name={
+              params.source_context === 'saved'
+                ? 'bookmark'
+                : params.source_context === 'feed'
+                  ? 'newspaper-outline'
+                  : 'search-outline'
+            }
             size={13}
             color={COLORS.textSecondary}
           />
