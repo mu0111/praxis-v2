@@ -62,6 +62,9 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <GlassTabBar {...props} />}
+      // Back arrows on the hidden tabs (Search, Saved, Profile) return to the
+      // tab you came from, not always to News.
+      backBehavior="history"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: c.tint,

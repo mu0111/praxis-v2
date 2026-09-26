@@ -12,6 +12,8 @@ import {
   InteractionManager,
   Keyboard,
   Pressable,
+  InputAccessoryView,
+  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router, useFocusEffect, useSegments } from 'expo-router';
@@ -70,6 +72,8 @@ const BROWSE_TOPICS = [
   'Environment',
   'Education',
 ];
+const SEARCH_KEYBOARD_BAR_ID = 'search-keyboard-bar';
+
 const SEARCH_COLORS = {
   background: '#F7F3EA',
   card: '#FFFDF7',
@@ -125,7 +129,7 @@ export default function SearchModal() {
       };
     }, []),
   );
-  // Opened from the top-right icon it is a tab page; leave via the tab bar.
+  // Opened from the top-right icon it is a tab page above the tab bar.
   const isTabPage = useSegments()[0] === '(tabs)';
 
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>(
@@ -347,16 +351,14 @@ export default function SearchModal() {
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       <View style={[s.header, { backgroundColor: c.card, borderBottomColor: c.border }]}>
-        {!isTabPage ? (
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={s.backButton}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <Ionicons name="arrow-back" size={20} color={c.text} />
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={s.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={20} color={c.text} />
+        </TouchableOpacity>
         <View style={[s.inputShell, { backgroundColor: c.background, borderColor: c.border }]}>
           <Ionicons name="search-outline" size={20} color={c.textMuted} />
           <TextInput
@@ -367,6 +369,7 @@ export default function SearchModal() {
             onChangeText={setQuery}
             ref={searchInputRef}
             returnKeyType="search"
+            inputAccessoryViewID={SEARCH_KEYBOARD_BAR_ID}
           />
           {query.length > 0 ? (
             <TouchableOpacity onPress={() => setQuery('')} style={s.clearBtn}>
@@ -380,6 +383,7 @@ export default function SearchModal() {
         <ScrollView
           contentContainerStyle={[s.discoveryContent, isTabPage && s.tabBarClearance]}
           showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
         >
           <LinearGradient
             colors={['#EAF2DE', '#FFFDF7', '#EDF4E5']}
@@ -497,6 +501,7 @@ export default function SearchModal() {
           data={results}
           keyExtractor={(item) => `${item.type}-${item.id}`}
           contentContainerStyle={[s.list, isTabPage && s.tabBarClearance]}
+          keyboardDismissMode="on-drag"
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.resultRow, { backgroundColor: c.card, borderColor: c.border }]}
@@ -558,6 +563,23 @@ export default function SearchModal() {
           )}
         />
       ) : null}
+      {Platform.OS === 'ios' ? (
+        // "Hide" pill riding on top of the keyboard: drops it, keeps the text
+        // (Ayuka's option 2, 2026-09-26). Dragging a list drops it too.
+        <InputAccessoryView nativeID={SEARCH_KEYBOARD_BAR_ID}>
+          <View style={[s.keyboardBar, { borderTopColor: c.border }]}>
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              style={[s.hideKeyboardPill, { backgroundColor: c.card, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel="Hide keyboard"
+            >
+              <Ionicons name="chevron-down" size={16} color={c.text} />
+              <Text style={[s.hideKeyboardText, { color: c.text }]}>Hide</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -599,6 +621,27 @@ const s = StyleSheet.create({
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  keyboardBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F2F0EC',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  hideKeyboardPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    borderWidth: 1,
+  },
+  hideKeyboardText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   tabBarClearance: {
     paddingBottom: TAB_BAR_CLEARANCE,
