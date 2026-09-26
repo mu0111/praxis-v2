@@ -85,6 +85,7 @@ import { readCachedStreak, writeCachedStreak } from '../lib/streakCache';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { SwipeTooltip } from '../components/onboarding/SwipeTooltip';
 import { GraphBanner } from '../components/onboarding/GraphBanner';
+import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
 import { StoryShareSheet } from '../components/StoryShareSheet';
@@ -1676,27 +1677,11 @@ export default function FeedScreen() {
     markRead(article, 'open');
     void trackArticleOpen(articleAnalyticsContext(article));
     void completeDigestArticle(article.id);
-    // Read opens Praxis's own article page first (photo, date, summary,
-    // lean); "Read Original Article" at its foot goes to the publisher.
-    // Ayuka + a reader's ask, 2026-09-26.
-    router.push({
-      pathname: '/article/[id]',
-      params: {
-        id: String(article.id),
-        title: article.title,
-        lede: article.lede || article.meta?.summary || '',
-        image_url: article.image_url ?? '',
-        url: article.url,
-        publisher_name: article.publisher?.name ?? '',
-        ts_pub: article.ts_pub,
-        source_context: 'feed',
-        x: article.x == null ? '' : String(article.x),
-        y: article.y == null ? '' : String(article.y),
-        category: article.category ?? '',
-        topics: JSON.stringify(article.topics ?? []),
-        x_explanation: article.meta?.x_explanation ?? '',
-        y_explanation: article.meta?.y_explanation ?? '',
-      },
+    void openPublisherArticle(article.url).catch(() => {
+      Alert.alert(
+        'Article unavailable',
+        'We could not open the publisher article right now.',
+      );
     });
   }, [articleAnalyticsContext, completeDigestArticle, markRead]);
 
