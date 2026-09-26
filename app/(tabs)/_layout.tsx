@@ -130,6 +130,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="search"
+        options={{
+          // Opens in place like a page, tab bar still showing (Ayuka,
+          // 2026-09-26). It was a card sliding over the whole screen.
+          href: null,
+          tabBarAccessibilityLabel: 'Search',
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           href: null,

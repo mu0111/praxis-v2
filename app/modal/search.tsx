@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
   Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useFocusEffect, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -33,6 +33,7 @@ import {
   type SavedArticleSnapshot,
 } from '../lib/savedArticles';
 import { useAuth } from '../context/AuthContext';
+import { TAB_BAR_CLEARANCE } from '../components/GlassTabBar';
 import { searchLiveArticles } from '../hooks/useFeedArticles';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
 import { getPoliticalLeanLabel, getReportingLabel } from '../lib/leanLabels';
@@ -109,16 +110,23 @@ export default function SearchModal() {
   const [expandedResultId, setExpandedResultId] = useState<number | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  // Focus the moment the slide settles — autoFocus opened the keyboard
-  // mid-transition, and the old extra 60ms made the keyboard read as a
-  // separate second motion after the slide (Ayuka, 2026-09-18).
+  // Focus once the screen settles — autoFocus opened the keyboard
+  // mid-transition (Ayuka, 2026-09-18). As a tab the screen stays mounted,
+  // so focus on every visit and let the keyboard go when leaving.
   const searchInputRef = useRef<TextInput>(null);
-  useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
-      searchInputRef.current?.focus();
-    });
-    return () => task.cancel();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        searchInputRef.current?.focus();
+      });
+      return () => {
+        task.cancel();
+        searchInputRef.current?.blur();
+      };
+    }, []),
+  );
+  // Opened from the top-right icon it is a tab page; leave via the tab bar.
+  const isTabPage = useSegments()[0] === '(tabs)';
 
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>(
     () => readCachedTrendingTopics() ?? [],
@@ -339,14 +347,16 @@ export default function SearchModal() {
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       <View style={[s.header, { backgroundColor: c.card, borderBottomColor: c.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={s.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="arrow-back" size={20} color={c.text} />
-        </TouchableOpacity>
+        {!isTabPage ? (
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={s.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={20} color={c.text} />
+          </TouchableOpacity>
+        ) : null}
         <View style={[s.inputShell, { backgroundColor: c.background, borderColor: c.border }]}>
           <Ionicons name="search-outline" size={20} color={c.textMuted} />
           <TextInput
@@ -368,7 +378,7 @@ export default function SearchModal() {
 
       {!hasQuery ? (
         <ScrollView
-          contentContainerStyle={s.discoveryContent}
+          contentContainerStyle={[s.discoveryContent, isTabPage && s.tabBarClearance]}
           showsVerticalScrollIndicator={false}
         >
           <LinearGradient
@@ -486,7 +496,7 @@ export default function SearchModal() {
         <FlatList
           data={results}
           keyExtractor={(item) => `${item.type}-${item.id}`}
-          contentContainerStyle={s.list}
+          contentContainerStyle={[s.list, isTabPage && s.tabBarClearance]}
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.resultRow, { backgroundColor: c.card, borderColor: c.border }]}
@@ -589,6 +599,9 @@ const s = StyleSheet.create({
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  tabBarClearance: {
+    paddingBottom: TAB_BAR_CLEARANCE,
   },
   discoveryContent: {
     paddingHorizontal: 16,

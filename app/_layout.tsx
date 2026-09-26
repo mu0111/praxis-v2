@@ -190,7 +190,6 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(auth)" options={{ animation: 'none' }} />
             <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="search" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="article/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="story/[id]" options={{ animation: 'none' }} />
             <Stack.Screen name="article/ai-analysis" options={{ presentation: 'modal' }} />
