@@ -684,6 +684,10 @@ interface TitleSearchRow {
   image_url?: string | null;
   publisher?: string | null;
   ts_pub?: string;
+  x?: number | null;
+  y?: number | null;
+  x_explanation?: string | null;
+  y_explanation?: string | null;
 }
 
 // Returns null when the recommender API is not configured.
@@ -712,6 +716,15 @@ const fetchTitleSearchResults = async (query: string, limit: number): Promise<Ar
       image_url: row.image_url ?? undefined,
       publisher: row.publisher ?? undefined,
       ts_pub: row.ts_pub,
+      x: typeof row.x === 'number' ? row.x : undefined,
+      y: typeof row.y === 'number' ? row.y : undefined,
+      meta: {
+        x_explanation: row.x_explanation ?? undefined,
+        y_explanation: row.y_explanation ?? undefined,
+        // Unscored rows would read as Center / Mixed at (0, 0); the search
+        // screen shows no lean chip for them instead (Ayuka, 2026-09-27).
+        unscored: typeof row.x !== 'number' || typeof row.y !== 'number',
+      },
     }))
     .filter((article) => Boolean(article.url));
 };
