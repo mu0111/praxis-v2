@@ -204,28 +204,14 @@ export default function AccountSettingsModal() {
         {
           id: 'leaderboard',
           label: 'Leaderboard',
-          hint: 'Your stats, visible to readers.',
+          // The switch itself is the consent, so the row says exactly what
+          // goes public (Ayuka, 2026-10-12: no extra confirm pop-up).
+          hint: 'Others see your name, @username, photo, streak and number of articles read. Which articles you read stays private.',
           icon: 'trophy-outline',
           toggle: profile?.show_on_leaderboard === true,
           onPress: () => {
-            const save = (value: boolean) => {
-              void updateProfile({ show_on_leaderboard: value })
-                .catch((error: any) => Alert.alert('Could not update', error?.message ?? 'Try again.'));
-            };
-            if (profile?.show_on_leaderboard === true) {
-              save(false);
-              return;
-            }
-            // Turning it on here is consent too, so spell out what goes public
-            // (same wording as the leaderboard's Join sheet).
-            Alert.alert(
-              'Join the leaderboard?',
-              'Your name, @username, photo, reading streak and number of articles read will be visible to other Praxis readers. Which articles you read stays private.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Join', onPress: () => save(true) },
-              ],
-            );
+            void updateProfile({ show_on_leaderboard: profile?.show_on_leaderboard !== true })
+              .catch((error: any) => Alert.alert('Could not update', error?.message ?? 'Try again.'));
           },
         },
         {
