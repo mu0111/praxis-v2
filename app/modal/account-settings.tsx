@@ -205,7 +205,7 @@ export default function AccountSettingsModal() {
           label: 'Leaderboard',
           // The switch itself is the consent, so the row says exactly what
           // goes public (Ayuka, 2026-10-12: no extra confirm pop-up).
-          hint: 'Rank with friends and other readers. They see your name, @username, photo, streak and article count, never which articles.',
+          hint: 'Others see your name, @username, photo, streak and article count.',
           icon: 'trophy-outline',
           toggle: profile?.show_on_leaderboard === true,
           onPress: () => {
@@ -304,12 +304,16 @@ export default function AccountSettingsModal() {
                       {item.hint ? <Text style={s.rowHint}>{item.hint}</Text> : null}
                     </View>
                     {item.toggle !== undefined ? (
-                      <Switch
-                        value={item.toggle}
-                        onValueChange={item.onPress}
-                        disabled={Boolean(busyAction)}
-                        trackColor={{ true: '#8EAF72' }}
-                      />
+                      // The switch sat at the top of the taller leaderboard row
+                      // on device (2026-10-12), so center it explicitly.
+                      <View style={s.switchWrap}>
+                        <Switch
+                          value={item.toggle}
+                          onValueChange={item.onPress}
+                          disabled={Boolean(busyAction)}
+                          trackColor={{ true: '#8EAF72' }}
+                        />
+                      </View>
                     ) : destructive ? null : (
                       <Ionicons
                         name={item.external ? 'open-outline' : 'chevron-forward'}
@@ -374,6 +378,7 @@ const s = StyleSheet.create({
   },
   destructiveIconWrap: { backgroundColor: '#F7E5E0', borderColor: '#E3B9AE' },
   rowCopy: { flex: 1, minWidth: 0 },
+  switchWrap: { alignSelf: 'stretch', justifyContent: 'center' },
   rowLabel: { color: PAGE.text, fontSize: 16, fontWeight: '600' },
   rowHint: { color: PAGE.textMuted, fontSize: 12.5, lineHeight: 17, marginTop: 2 },
   destructiveText: { color: PAGE.destructive },
