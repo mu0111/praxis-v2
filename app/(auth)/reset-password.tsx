@@ -4,6 +4,7 @@ import {
   SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as Linking from 'expo-linking';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
 
@@ -20,12 +21,23 @@ export default function ResetPasswordScreen() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
 
-  // Set the session from the deep link tokens
+  // Supabase's recovery redirect carries the tokens in the URL fragment
+  // (praxis://reset-password#access_token=…&refresh_token=…), which the router
+  // params never see, so read them from the link that opened the app.
+  const url = Linking.useURL();
   useEffect(() => {
-    if (access_token && refresh_token) {
-      supabase.auth.setSession({ access_token, refresh_token });
+    const fragment = new URLSearchParams(url?.split('#')[1] ?? '');
+    const accessToken = fragment.get('access_token') ?? access_token;
+    const refreshToken = fragment.get('refresh_token') ?? refresh_token;
+    if (fragment.get('error_description')) {
+      setError(`${fragment.get('error_description')}. Request a new reset link.`);
+      return;
     }
-  }, [access_token, refresh_token]);
+    if (accessToken && refreshToken) {
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error: err }) => { if (err) setError(err.message); });
+    }
+  }, [url, access_token, refresh_token]);
 
   const requirements = [
     { label: '8+ characters', met: password.length >= 8 },
@@ -45,7 +57,8 @@ export default function ResetPasswordScreen() {
     setLoading(false);
     if (err) { setError(err.message); return; }
     setDone(true);
-    setTimeout(() => router.replace('/login'), 2000);
+    // The recovery link signed them in, so continue straight to the app.
+    setTimeout(() => router.replace('/'), 2000);
   };
 
   if (done) {
@@ -54,7 +67,7 @@ export default function ResetPasswordScreen() {
         <View style={s.inner}>
           <Text style={{ fontSize: 52 }}>✅</Text>
           <Text style={[s.title, { color: c.text }]}>Password updated!</Text>
-          <Text style={[s.sub, { color: c.textSecondary }]}>Redirecting you to sign in…</Text>
+          <Text style={[s.sub, { color: c.textSecondary }]}>Taking you to Praxis…</Text>
         </View>
       </SafeAreaView>
     );

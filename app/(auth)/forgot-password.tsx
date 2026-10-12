@@ -22,7 +22,7 @@ export default function ForgotPasswordScreen() {
     if (!email) return;
     setLoading(true);
     await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: 'praxis://auth/reset-password',
+      redirectTo: 'praxis://reset-password',
     });
     // Always show success for security — don't reveal if email exists
     setLoading(false);

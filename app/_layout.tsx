@@ -98,7 +98,10 @@ function RootRedirect() {
     // Settings → Reset Onboarding sends a signed-in user to (auth)/onboarding;
     // without this the redirect below bounced them straight back to the feed.
     const inOnboarding = inAuth && (segments as string[])[1] === 'onboarding';
-    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory || inOnboarding;
+    // The recovery link signs the user in before they choose a new password;
+    // keep them on the reset screen instead of bouncing to the feed.
+    const inPasswordReset = inAuth && (segments as string[])[1] === 'reset-password';
+    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory || inOnboarding || inPasswordReset;
 
     if (!session && !isGuestMode) {
       if (!inAuth) router.replace('/login');
