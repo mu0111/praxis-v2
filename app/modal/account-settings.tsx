@@ -208,8 +208,24 @@ export default function AccountSettingsModal() {
           icon: 'trophy-outline',
           toggle: profile?.show_on_leaderboard === true,
           onPress: () => {
-            void updateProfile({ show_on_leaderboard: profile?.show_on_leaderboard !== true })
-              .catch((error: any) => Alert.alert('Could not update', error?.message ?? 'Try again.'));
+            const save = (value: boolean) => {
+              void updateProfile({ show_on_leaderboard: value })
+                .catch((error: any) => Alert.alert('Could not update', error?.message ?? 'Try again.'));
+            };
+            if (profile?.show_on_leaderboard === true) {
+              save(false);
+              return;
+            }
+            // Turning it on here is consent too, so spell out what goes public
+            // (same wording as the leaderboard's Join sheet).
+            Alert.alert(
+              'Join the leaderboard?',
+              'Your name, @username, photo, reading streak and articles read will be visible to other Praxis readers.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Join', onPress: () => save(true) },
+              ],
+            );
           },
         },
         {
