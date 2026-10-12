@@ -92,7 +92,10 @@ function RootRedirect() {
     const inStory = segments[0] === 'story';
     const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'search', 'social', 'topics']);
     const inTabAlias = tabAliasSegments.has(segments[0] ?? '');
-    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory;
+    // Settings → Reset Onboarding sends a signed-in user to (auth)/onboarding;
+    // without this the redirect below bounced them straight back to the feed.
+    const inOnboarding = inAuth && (segments as string[])[1] === 'onboarding';
+    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory || inOnboarding;
 
     if (!session && !isGuestMode) {
       if (!inAuth) router.replace('/login');

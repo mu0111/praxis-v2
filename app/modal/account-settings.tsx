@@ -19,11 +19,11 @@ import { GlassSurface } from '../components/GlassSurface';
 import { supabase } from '../services/supabase';
 
 import Constants from 'expo-constants';
-import { hasLiquidGlass } from '../components/GlassSurface';
 
-const appVersion = `${Constants.expoConfig?.version ?? '2.0.0'} (${
-  (Constants.expoConfig as { ios?: { buildNumber?: string } } | null)?.ios?.buildNumber ?? '—'
-})`;
+// Plain footer text, not a row (Ayuka, 2026-10-12): the old tappable
+// "Version … · Glass on" row did nothing, and app.json's buildNumber ("2")
+// is not the real build number, so only the marketing version is shown.
+const appVersion = Constants.expoConfig?.version ?? '2.0.0';
 const TERMS_URL = 'https://praxisnews.co/terms.html';
 const PRIVACY_URL = 'https://praxisnews.co/privacy.html';
 
@@ -203,8 +203,8 @@ export default function AccountSettingsModal() {
         },
         {
           id: 'leaderboard',
-          label: 'Show Me on the Leaderboard',
-          hint: 'Your name, @username, photo, streak and articles read.',
+          label: 'Leaderboard',
+          hint: 'Your stats, visible to readers.',
           icon: 'trophy-outline',
           toggle: profile?.show_on_leaderboard === true,
           onPress: () => {
@@ -237,15 +237,6 @@ export default function AccountSettingsModal() {
           icon: 'shield-checkmark-outline',
           external: true,
           onPress: () => void Linking.openURL(PRIVACY_URL),
-        },
-        {
-          id: 'build',
-          // Says out loud whether iOS granted this build the Liquid Glass
-          // material — otherwise "the glass looks flat" is unfalsifiable
-          // from a screenshot.
-          label: `Version ${appVersion} · Glass ${hasLiquidGlass ? 'on' : 'off'}`,
-          icon: 'information-circle-outline',
-          onPress: () => {},
         },
       ],
     },
@@ -334,6 +325,7 @@ export default function AccountSettingsModal() {
             </View>
           </View>
         ))}
+        <Text style={s.versionFooter}>Praxis {appVersion}</Text>
         </ScrollView>
       </GlassSurface>
     </SafeAreaView>
@@ -360,6 +352,7 @@ const s = StyleSheet.create({
   },
   sheetFallback: { backgroundColor: PAGE.background },
   scrollContent: { paddingBottom: 8 },
+  versionFooter: { color: PAGE.textMuted, fontSize: 12, textAlign: 'center', marginTop: 18, marginBottom: 6 },
   handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: '#D6CDBE', alignSelf: 'center', marginBottom: 22 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 6 },
   headerCopy: { flex: 1 },
