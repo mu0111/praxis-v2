@@ -206,7 +206,7 @@ export default function AccountSettingsModal() {
           label: 'Leaderboard',
           // The switch itself is the consent, so the row says exactly what
           // goes public (Ayuka, 2026-10-12: no extra confirm pop-up).
-          hint: 'Others see your name, @username, photo, streak and number of articles read. Which articles you read stays private.',
+          hint: 'Rank with friends and other readers. They see your name, @username, photo, streak and article count, never which articles.',
           icon: 'trophy-outline',
           toggle: profile?.show_on_leaderboard === true,
           onPress: () => {

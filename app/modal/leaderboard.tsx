@@ -307,10 +307,10 @@ export default function LeaderboardModal() {
       <Modal visible={showConsent} transparent animationType="slide" onRequestClose={() => void answerConsent(false)}>
         <View style={s.consentBackdrop}>
           <View style={s.consentSheet}>
-            <Text style={s.consentTitle}>Join the leaderboard?</Text>
+            <Text style={s.consentTitle}>See how you rank</Text>
             <Text style={s.consentText}>
-              Your name, @username, photo, reading streak and number of articles read will be visible to other Praxis readers. Which articles you read stays private.
-              You can change this anytime in Settings.
+              Join the leaderboard to compete with friends and other Praxis readers. They'll see your name, @username,
+              photo, streak and number of articles read, never which articles. You can change this anytime in Settings.
             </Text>
             <TouchableOpacity
               style={s.consentJoin}
