@@ -309,7 +309,7 @@ export default function LeaderboardModal() {
           <View style={s.consentSheet}>
             <Text style={s.consentTitle}>Join the leaderboard?</Text>
             <Text style={s.consentText}>
-              Your name, @username, photo, reading streak and articles read will be visible to other Praxis readers.
+              Your name, @username, photo, reading streak and number of articles read will be visible to other Praxis readers. Which articles you read stays private.
               You can change this anytime in Settings.
             </Text>
             <TouchableOpacity

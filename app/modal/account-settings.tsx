@@ -220,7 +220,7 @@ export default function AccountSettingsModal() {
             // (same wording as the leaderboard's Join sheet).
             Alert.alert(
               'Join the leaderboard?',
-              'Your name, @username, photo, reading streak and articles read will be visible to other Praxis readers.',
+              'Your name, @username, photo, reading streak and number of articles read will be visible to other Praxis readers. Which articles you read stays private.',
               [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Join', onPress: () => save(true) },
