@@ -29,6 +29,8 @@ export interface Profile {
   notify_social?: boolean | null;
   notify_news?: boolean | null;
   notify_quiet_hours?: boolean | null;
+  // null = never asked; the leaderboard lists only true (App Store 5.1.2).
+  show_on_leaderboard?: boolean | null;
 }
 
 interface AuthContextType {

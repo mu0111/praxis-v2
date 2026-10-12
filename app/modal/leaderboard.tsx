@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Modal,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -85,12 +86,17 @@ const TAB_COPY: Record<LeaderboardTab, { label: string; icon: keyof typeof Ionic
 };
 
 export default function LeaderboardModal() {
-  const { isGuestMode, loading: authLoading, user } = useAuth();
+  const { isGuestMode, loading: authLoading, profile, updateProfile, user } = useAuth();
   const [activeTab, setActiveTab] = useState<LeaderboardTab>('streaks');
   const [profiles, setProfiles] = useState<LeaderboardProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // App Store 5.1.2: ask once before anyone's stats go on a leaderboard.
+  // null/undefined = never asked; "Not now" stores false so we don't re-ask.
+  const [consentDismissed, setConsentDismissed] = useState(false);
+  const [consentSaving, setConsentSaving] = useState(false);
+  const showConsent = Boolean(profile) && profile?.show_on_leaderboard == null && !consentDismissed;
 
   useEffect(() => {
     if (authLoading) return;
@@ -127,6 +133,7 @@ export default function LeaderboardModal() {
           .from('profiles')
           .select(PROFILE_SELECT)
           .in('id', friendIds)
+          .eq('show_on_leaderboard', true)
           .order('current_streak', { ascending: false })
           .limit(LEADERBOARD_CANDIDATE_LIMIT);
         if (error) throw error;
@@ -141,6 +148,7 @@ export default function LeaderboardModal() {
       const { data, error } = await supabase
         .from('profiles')
         .select(PROFILE_SELECT)
+        .eq('show_on_leaderboard', true)
         .order(orderColumn, { ascending: false })
         .limit(activeTab === 'readers' ? LEADERBOARD_LIMIT : LEADERBOARD_CANDIDATE_LIMIT);
       if (error) throw error;
@@ -172,6 +180,19 @@ export default function LeaderboardModal() {
       ? profile.articles_read ?? 0
       : profile.current_streak ?? 0
   );
+
+  const answerConsent = async (join: boolean) => {
+    setConsentSaving(true);
+    try {
+      await updateProfile({ show_on_leaderboard: join });
+      if (join) void loadLeaderboard(true);
+    } catch (error) {
+      console.warn('[Leaderboard] Could not save leaderboard choice', error);
+    } finally {
+      setConsentSaving(false);
+      setConsentDismissed(true);
+    }
+  };
 
   if (authLoading || isGuestMode || !user) return null;
 
@@ -283,6 +304,35 @@ export default function LeaderboardModal() {
           }}
         />
       )}
+      <Modal visible={showConsent} transparent animationType="slide" onRequestClose={() => void answerConsent(false)}>
+        <View style={s.consentBackdrop}>
+          <View style={s.consentSheet}>
+            <Text style={s.consentTitle}>Join the leaderboard?</Text>
+            <Text style={s.consentText}>
+              Your name, @username, photo, reading streak and articles read will be visible to other Praxis readers.
+              You can change this anytime in Settings.
+            </Text>
+            <TouchableOpacity
+              style={s.consentJoin}
+              onPress={() => void answerConsent(true)}
+              disabled={consentSaving}
+              accessibilityLabel="Join leaderboard"
+            >
+              {consentSaving
+                ? <ActivityIndicator color="#FFFDF8" size="small" />
+                : <Text style={s.consentJoinText}>Join leaderboard</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.consentSkip}
+              onPress={() => void answerConsent(false)}
+              disabled={consentSaving}
+              accessibilityLabel="Not now"
+            >
+              <Text style={s.consentSkipText}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -349,4 +399,12 @@ const s = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingHorizontal: 42 },
   emptyTitle: { color: PAGE.text, fontSize: 20, fontWeight: '800', marginTop: 16 },
   emptyText: { color: PAGE.textMuted, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 7 },
+  consentBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(46,42,37,0.38)' },
+  consentSheet: { backgroundColor: PAGE.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 22, paddingBottom: 36 },
+  consentTitle: { color: PAGE.text, fontSize: 20, fontWeight: '800', marginBottom: 8 },
+  consentText: { color: '#5D554C', fontSize: 14, lineHeight: 21, marginBottom: 18 },
+  consentJoin: { minHeight: 50, borderRadius: 16, backgroundColor: PAGE.tint, alignItems: 'center', justifyContent: 'center' },
+  consentJoinText: { color: '#FFFDF8', fontSize: 16, fontWeight: '800' },
+  consentSkip: { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: 6 },
+  consentSkipText: { color: PAGE.textMuted, fontSize: 15, fontWeight: '700' },
 });

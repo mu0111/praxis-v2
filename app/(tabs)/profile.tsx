@@ -117,6 +117,7 @@ export default function ProfileScreen() {
       supabase
         .from('profiles')
         .select('id, articles_read')
+        .eq('show_on_leaderboard', true)
         .order('articles_read', { ascending: false })
         .limit(100),
     ]).then(([catalogResult, earnedResult, rankingResult]) => {

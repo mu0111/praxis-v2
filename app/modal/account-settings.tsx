@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -45,6 +46,8 @@ type SettingsRow = {
   onPress: () => void;
   destructive?: boolean;
   external?: boolean;
+  // Renders a switch in place of the chevron; onPress flips it.
+  toggle?: boolean;
 };
 
 export default function AccountSettingsModal() {
@@ -199,6 +202,17 @@ export default function AccountSettingsModal() {
           onPress: () => router.push('/modal/notification-settings'),
         },
         {
+          id: 'leaderboard',
+          label: 'Show Me on the Leaderboard',
+          hint: 'Your name, @username, photo, streak and articles read.',
+          icon: 'trophy-outline',
+          toggle: profile?.show_on_leaderboard === true,
+          onPress: () => {
+            void updateProfile({ show_on_leaderboard: profile?.show_on_leaderboard !== true })
+              .catch((error: any) => Alert.alert('Could not update', error?.message ?? 'Try again.'));
+          },
+        },
+        {
           id: 'reset-onboarding',
           label: 'Reset Onboarding',
           hint: 'Choose your interests again.',
@@ -300,7 +314,14 @@ export default function AccountSettingsModal() {
                       <Text style={[s.rowLabel, destructive && s.destructiveText]}>{item.label}</Text>
                       {item.hint ? <Text style={s.rowHint}>{item.hint}</Text> : null}
                     </View>
-                    {destructive ? null : (
+                    {item.toggle !== undefined ? (
+                      <Switch
+                        value={item.toggle}
+                        onValueChange={item.onPress}
+                        disabled={Boolean(busyAction)}
+                        trackColor={{ true: '#8EAF72' }}
+                      />
+                    ) : destructive ? null : (
                       <Ionicons
                         name={item.external ? 'open-outline' : 'chevron-forward'}
                         size={item.external ? 17 : 20}
