@@ -100,11 +100,11 @@ function RootRedirect() {
     const inOnboarding = inAuth && (segments as string[])[1] === 'onboarding';
     // The recovery link signs the user in before they choose a new password;
     // keep them on the reset screen instead of bouncing to the feed.
-    const inPasswordReset = inAuth && (segments as string[])[1] === 'reset-password';
+    const inPasswordReset = (inAuth || (segments as string[])[0] === 'auth') && (segments as string[])[1] === 'reset-password';
     const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory || inOnboarding || inPasswordReset;
 
     if (!session && !isGuestMode) {
-      if (!inAuth) router.replace('/login');
+      if (!inAuth && !inPasswordReset) router.replace('/login');
     } else if (!session && isGuestMode) {
       if (!inAppShell && !inAuth) router.replace('/');
     } else if (session && !inAppShell) {
