@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { trackEvent } from '../lib/analytics';
 
 interface Props {
   children: React.ReactNode;
@@ -22,8 +23,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // In production, wire this to your error reporting service (e.g., Sentry)
     console.error('[ErrorBoundary]', error, info);
+    // No crash reporter is wired up; record the message so a crash someone
+    // only sees on their phone can still be diagnosed from analytics_events.
+    void trackEvent('app_error', {
+      message: String(error?.message ?? error).slice(0, 500),
+      stack: (error?.stack ?? '').slice(0, 2000),
+      component_stack: (info?.componentStack ?? '').slice(0, 2000),
+    });
   }
 
   reset = () => {

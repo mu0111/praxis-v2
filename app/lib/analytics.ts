@@ -47,7 +47,8 @@ export type AnalyticsEventName =
   | 'ai_analysis_open'
   | 'preferences_apply'
   | 'feed_load'
-  | 'ui_stall';
+  | 'ui_stall'
+  | 'app_error';
 
 // The mobile feed uses 'top-news'; the analytics schema (and web) use 'top_news'.
 export const normalizeFeedMode = (mode: string | null | undefined): FeedMode | undefined => {
