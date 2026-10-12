@@ -202,7 +202,7 @@ export default function RootLayout() {
             <Stack.Screen name="modal/search" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/leaderboard" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/edit-profile" options={{ presentation: 'modal' }} />
-            <Stack.Screen name="modal/account-settings" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="modal/account-settings" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="modal/notification-settings" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="modal/follow-list" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/find-people" options={{ presentation: 'modal' }} />

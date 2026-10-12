@@ -15,7 +15,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
-import { GlassSurface } from '../components/GlassSurface';
 import { supabase } from '../services/supabase';
 
 import Constants from 'expo-constants';
@@ -257,25 +256,22 @@ export default function AccountSettingsModal() {
   ];
 
   return (
-    <SafeAreaView style={s.overlay}>
-      <GlassSurface style={s.sheet} tintColor="rgba(247,243,234,0.55)" fallbackStyle={s.sheetFallback}>
-        <View style={s.handle} />
+    <SafeAreaView style={s.page}>
+      <View style={s.body}>
         <View style={s.header}>
+          <TouchableOpacity style={s.closeButton} onPress={() => router.back()} accessibilityLabel="Back">
+            <Ionicons name="arrow-back" size={20} color={PAGE.text} />
+          </TouchableOpacity>
           <View style={s.headerCopy}>
             <Text style={s.title}>Settings</Text>
             <Text style={s.subtitle}>
               {user?.email ? `Signed in as ${user.email}.` : 'Manage your account.'}
             </Text>
           </View>
-          <TouchableOpacity style={s.closeButton} onPress={() => router.back()} accessibilityLabel="Close settings">
-            <Ionicons name="close" size={22} color={PAGE.text} />
-          </TouchableOpacity>
         </View>
 
-        {/* The sheet grew with every added row until it pressed the title
-            against the status bar with nothing scrollable (Ayuka,
-            2026-09-19, msg 1503). The handle and header stay pinned; the
-            rows scroll inside a capped sheet. */}
+        {/* A full page since 2026-10-12 (Ayuka: open it as a page, not a
+            swipe-up sheet). The header stays pinned; the rows scroll. */}
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
         {sections.map((section, sectionIndex) => (
           <View key={section.title ?? `section-${sectionIndex}`}>
@@ -329,34 +325,17 @@ export default function AccountSettingsModal() {
         ))}
         <Text style={s.versionFooter}>Praxis {appVersion}</Text>
         </ScrollView>
-      </GlassSurface>
+      </View>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(46,42,37,0.22)', justifyContent: 'flex-end' },
-  sheet: {
-    overflow: 'hidden',
-    width: '100%',
-    // A sheet, not a takeover: the top ~12% of the page stays visible
-    // behind it however many rows settings grows.
-    maxHeight: '88%',
-    maxWidth: 520,
-    alignSelf: 'center',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 30,
-    borderWidth: 1,
-    borderColor: PAGE.border,
-  },
-  sheetFallback: { backgroundColor: PAGE.background },
-  scrollContent: { paddingBottom: 8 },
+  page: { flex: 1, backgroundColor: PAGE.background },
+  body: { flex: 1, width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 12 },
+  scrollContent: { paddingBottom: 40 },
   versionFooter: { color: PAGE.textMuted, fontSize: 12, textAlign: 'center', marginTop: 18, marginBottom: 6 },
-  handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: '#D6CDBE', alignSelf: 'center', marginBottom: 22 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 6 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginBottom: 6 },
   headerCopy: { flex: 1 },
   title: { color: PAGE.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.4 },
   subtitle: { color: PAGE.textMuted, fontSize: 13, lineHeight: 20, marginTop: 7 },
