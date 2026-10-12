@@ -1,6 +1,6 @@
 import './lib/webRuntimePolyfills';
 import { useEffect, useRef } from 'react';
-import { Stack, router, useGlobalSearchParams, usePathname, useSegments } from 'expo-router';
+import { Stack, router, useGlobalSearchParams, usePathname, useRootNavigationState, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -80,9 +80,12 @@ function RootRedirect() {
   const { session, profile, loading, isGuestMode } = useAuth();
   const segments = useSegments();
   const params = useGlobalSearchParams<{ returnTo?: string }>();
+  // RootRedirect renders before <Stack>; navigating before the root navigator
+  // is ready throws "Attempted to navigate before mounting the Root Layout".
+  const navigatorReady = Boolean(useRootNavigationState()?.key);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !navigatorReady) return;
 
     const inAuth = segments[0] === '(auth)';
     const inTabs = segments[0] === '(tabs)';
@@ -108,7 +111,7 @@ function RootRedirect() {
 
     // The route is settled for this auth state; reveal the app.
     void SplashScreen.hideAsync().catch(() => undefined);
-  }, [session, profile, loading, segments, isGuestMode, params.returnTo]);
+  }, [session, profile, loading, navigatorReady, segments, isGuestMode, params.returnTo]);
 
   return null;
 }

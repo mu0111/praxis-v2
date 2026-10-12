@@ -18,7 +18,7 @@ import { ReportSheet } from '../components/ReportSheet';
 
 export default function UserProfileModal() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
-  const { isGuestMode, user } = useAuth();
+  const { isGuestMode, user, loading: authLoading } = useAuth();
   const { c } = useTheme();
   const [profile, setProfile] = useState<any>(null);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -27,6 +27,9 @@ export default function UserProfileModal() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Wait for the session to restore; redirecting on the first render (cold
+    // start from a link or notification) navigated before the root mounted.
+    if (authLoading) return;
     if (isGuestMode || !user) {
       router.replace(buildHref('/login', { returnTo: '/social' }));
       return;
@@ -42,7 +45,7 @@ export default function UserProfileModal() {
       setIsBlocked(Boolean(blocked));
       setLoading(false);
     });
-  }, [isGuestMode, userId, user]);
+  }, [authLoading, isGuestMode, userId, user]);
 
   const displayName = profile?.full_name ?? profile?.username ?? 'this user';
 
@@ -114,6 +117,7 @@ export default function UserProfileModal() {
     );
   }
   if (!profile) return null;
+  const statsPublic = profile.show_on_leaderboard === true || profile.id === user?.id;
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
@@ -171,16 +175,23 @@ export default function UserProfileModal() {
 
         <View style={[s.statsCard, { backgroundColor: c.card, borderColor: c.border }]}>
           {[
-            { label: 'Articles Read', value: profile.articles_read ?? 0 },
-            { label: 'Day Streak', value: profile.current_streak ?? 0 },
-            { label: 'Followers', value: profile.followers_count ?? 0 },
+            // Reading stats are only public for people who joined the
+            // leaderboard (Guideline 5.1.2 consent); others show a lock.
+            { label: 'Articles Read', value: profile.articles_read ?? 0, isPrivate: !statsPublic },
+            { label: 'Day Streak', value: profile.current_streak ?? 0, isPrivate: !statsPublic },
+            { label: 'Followers', value: profile.followers_count ?? 0, isPrivate: false },
           ].map((stat, i, arr) => (
             <View key={stat.label} style={[s.stat, i < arr.length - 1 && { borderRightWidth: 1, borderRightColor: c.border }]}>
-              <Text style={[s.statNum, { color: c.text }]}>{stat.value}</Text>
+              {stat.isPrivate
+                ? <View style={s.statLock}><Ionicons name="lock-closed" size={20} color={c.textMuted} /></View>
+                : <Text style={[s.statNum, { color: c.text }]}>{stat.value}</Text>}
               <Text style={[s.statLabel, { color: c.textMuted }]}>{stat.label}</Text>
             </View>
           ))}
         </View>
+        {!statsPublic && (
+          <Text style={[s.statsPrivateNote, { color: c.textMuted }]}>Reading stats are private</Text>
+        )}
       </ScrollView>
       {user && userId ? <ReportSheet
         visible={reporting}
@@ -217,4 +228,6 @@ const s = StyleSheet.create({
   stat: { flex: 1, alignItems: 'center', paddingVertical: 20 },
   statNum: { fontSize: 24, fontWeight: '800' },
   statLabel: { fontSize: 12, marginTop: 3 },
+  statLock: { height: 29, justifyContent: 'center' },
+  statsPrivateNote: { fontSize: 12, textAlign: 'center', marginTop: 8 },
 });
