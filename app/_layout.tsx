@@ -10,6 +10,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NewsPreferencesProvider } from './context/NewsPreferencesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
+// Side effect: start remembering incoming links before any screen mounts.
+import './lib/deepLink';
 import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { supabase } from './services/supabase';

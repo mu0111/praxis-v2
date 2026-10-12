@@ -4,7 +4,7 @@ import {
   SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import * as Linking from 'expo-linking';
+import { getLastDeepLink, subscribeToDeepLinks } from '../lib/deepLink';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
 
@@ -24,7 +24,12 @@ export default function ResetPasswordScreen() {
   // Supabase's recovery redirect carries the tokens in the URL fragment
   // (praxis://reset-password#access_token=…&refresh_token=…), which the router
   // params never see, so read them from the link that opened the app.
-  const url = Linking.useURL();
+  const [url, setUrl] = useState<string | null>(() => getLastDeepLink());
+  useEffect(() => {
+    // Cold start: the initial URL may resolve just after mount.
+    if (!url) setUrl(getLastDeepLink());
+    return subscribeToDeepLinks(setUrl);
+  }, []);
   useEffect(() => {
     const fragment = new URLSearchParams(url?.split('#')[1] ?? '');
     const accessToken = fragment.get('access_token') ?? access_token;
@@ -34,6 +39,7 @@ export default function ResetPasswordScreen() {
       return;
     }
     if (accessToken && refreshToken) {
+      setError('');
       supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
         .then(({ error: err }) => { if (err) setError(err.message); });
     }
