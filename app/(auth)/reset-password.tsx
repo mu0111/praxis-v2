@@ -20,6 +20,8 @@ export default function ResetPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
+  // Set when the link is expired, already used, or never signed them in.
+  const [linkError, setLinkError] = useState('');
 
   // Supabase's recovery redirect carries the tokens in the URL fragment
   // (praxis://reset-password#access_token=…&refresh_token=…), which the router
@@ -35,13 +37,13 @@ export default function ResetPasswordScreen() {
     const accessToken = fragment.get('access_token') ?? access_token;
     const refreshToken = fragment.get('refresh_token') ?? refresh_token;
     if (fragment.get('error_description')) {
-      setError(`${fragment.get('error_description')}. Request a new reset link.`);
+      setLinkError('This reset link has expired or was already used.');
       return;
     }
     if (accessToken && refreshToken) {
-      setError('');
+      setLinkError('');
       supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-        .then(({ error: err }) => { if (err) setError(err.message); });
+        .then(({ error: err }) => { if (err) setLinkError('This reset link has expired or was already used.'); });
     }
   }, [url, access_token, refresh_token]);
 
@@ -61,11 +63,33 @@ export default function ResetPasswordScreen() {
     setLoading(true);
     const { error: err } = await supabase.auth.updateUser({ password });
     setLoading(false);
-    if (err) { setError(err.message); return; }
+    if (err) {
+      if (/session/i.test(err.message)) setLinkError("This reset link didn't sign you in.");
+      else setError(err.message);
+      return;
+    }
     setDone(true);
     // The recovery link signed them in, so continue straight to the app.
     setTimeout(() => router.replace('/'), 2000);
   };
+
+  if (linkError) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+        <View style={s.inner}>
+          <Text style={{ fontSize: 42, marginBottom: 4 }}>⏳</Text>
+          <Text style={[s.title, { color: c.text }]}>Link expired</Text>
+          <Text style={[s.sub, { color: c.textSecondary }]}>{linkError} Each link works once. Request a new one and open the latest email.</Text>
+          <TouchableOpacity
+            style={[s.button, { backgroundColor: c.tint }]}
+            onPress={() => router.replace('/forgot-password')}
+          >
+            <Text style={[s.buttonText, { color: c.tintForeground }]}>Send a new link</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (done) {
     return (

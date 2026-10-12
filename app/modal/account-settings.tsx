@@ -18,11 +18,14 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 
 // Plain footer text, not a row (Ayuka, 2026-10-12): the old tappable
 // "Version … · Glass on" row did nothing, and app.json's buildNumber ("2")
 // is not the real build number, so only the marketing version is shown.
 const appVersion = Constants.expoConfig?.version ?? '2.0.0';
+// Short id of the running over-the-air update, to confirm a phone has it.
+const updateTag = Updates.updateId ? ` · ${Updates.updateId.slice(0, 8)}` : '';
 const TERMS_URL = 'https://praxisnews.co/terms.html';
 const PRIVACY_URL = 'https://praxisnews.co/privacy.html';
 
@@ -327,7 +330,7 @@ export default function AccountSettingsModal() {
             </View>
           </View>
         ))}
-        <Text style={s.versionFooter}>Praxis {appVersion}</Text>
+        <Text style={s.versionFooter}>Praxis {appVersion}{updateTag}</Text>
         </ScrollView>
       </View>
     </SafeAreaView>
