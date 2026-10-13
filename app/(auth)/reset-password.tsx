@@ -4,9 +4,23 @@ import {
   SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { getLastDeepLink, subscribeToDeepLinks } from '../lib/deepLink';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
+
+const NETWORK_MESSAGE = "Couldn't reach Praxis. Check your connection and try again.";
+
+// The first requests after iOS opens the app from the email link can fail
+// with "Network request failed"; retry those before giving up.
+async function withRetry<T extends { error: unknown }>(call: () => Promise<T>): Promise<T> {
+  let res = await call();
+  for (let i = 1; i < 3 && res.error && isAuthRetryableFetchError(res.error); i++) {
+    await new Promise(r => setTimeout(r, 1000 * i));
+    res = await call();
+  }
+  return res;
+}
 
 export default function ResetPasswordScreen() {
   const { c } = useTheme();
@@ -42,8 +56,12 @@ export default function ResetPasswordScreen() {
     }
     if (accessToken && refreshToken) {
       setLinkError('');
-      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-        .then(({ error: err }) => { if (err) setLinkError('This reset link has expired or was already used.'); });
+      withRetry(() => supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }))
+        .then(({ error: err }) => {
+          if (!err) return;
+          if (isAuthRetryableFetchError(err)) setError(NETWORK_MESSAGE);
+          else setLinkError('This reset link has expired or was already used.');
+        });
     }
   }, [url, access_token, refresh_token]);
 
@@ -61,11 +79,14 @@ export default function ResetPasswordScreen() {
     if (!allMet || loading) return;
     setError('');
     setLoading(true);
-    const { error: err } = await supabase.auth.updateUser({ password });
+    const { error: err } = await withRetry(() => supabase.auth.updateUser({ password }));
     setLoading(false);
     if (err) {
       if (/session/i.test(err.message)) setLinkError("This reset link didn't sign you in.");
-      else setError(err.message);
+      else {
+        const { message } = err;
+        setError(isAuthRetryableFetchError(err) ? NETWORK_MESSAGE : message);
+      }
       return;
     }
     setDone(true);

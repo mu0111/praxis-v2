@@ -65,7 +65,7 @@ const formatCompactNumber = (value: number) => {
 };
 
 export default function ProfileScreen() {
-  const { isGuestMode, loading, profile, user } = useAuth();
+  const { isGuestMode, loading, profile, user, refreshProfile } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const [allBadges, setAllBadges] = useState<BadgeDefinition[]>([]);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
@@ -91,10 +91,13 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (loading) return;
-    if (isGuestMode || !user || !profile) {
+    // Signed in but the profile failed to load is not signed out: sending
+    // them to Login looped with RootRedirect (which sees the session and
+    // sends them back) until React gave up. Show a retry instead.
+    if (isGuestMode || !user) {
       router.replace(buildHref('/login', { returnTo: '/profile' }));
     }
-  }, [isGuestMode, loading, profile, user]);
+  }, [isGuestMode, loading, user]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -198,7 +201,18 @@ export default function ProfileScreen() {
     router.push('/modal/reading-activity');
   };
 
-  if (loading || isGuestMode || !user || !profile) return null;
+  if (loading || isGuestMode || !user) return null;
+  if (!profile) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: c.background, alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
+        <Text style={{ color: c.text, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Couldn't load your profile</Text>
+        <Text style={{ color: c.textMuted, fontSize: 14, textAlign: 'center', marginBottom: 20 }}>Check your connection and try again.</Text>
+        <TouchableOpacity onPress={() => void refreshProfile()} style={{ backgroundColor: c.tint, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 28 }}>
+          <Text style={{ color: '#FFFDF8', fontSize: 15, fontWeight: '700' }}>Try again</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
 
   const displayName = profile.full_name ?? profile.username ?? 'Reader';
   const canAccessAnalytics = isAnalyticsAdmin(user);
