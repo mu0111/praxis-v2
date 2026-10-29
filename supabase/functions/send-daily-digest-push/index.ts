@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { digestCopy, type FeedArticle, pickDigestLead, winbackCopy } from '../_shared/pushFormat.ts';
 
 // Runs hourly via pg_cron (minute 0). Sends the morning digest push to users
 // whose local time is 8am, whose digest isn't done, and who haven't opted out.
@@ -42,90 +43,59 @@ async function chunkedExpoSend(messages: unknown[]): Promise<void> {
   }
 }
 
-// One line for everyone, generated once per day from the digest's top stories.
-// Returns the source titles too: they go into push_log.meta so later sends
-// (blind spot, breaking) can avoid re-pushing a story the digest already led with.
-type DigestLine = { line: string; titles: string[] };
+// One lead story for everyone, picked once per day the way the app picks
+// the digest's first card. Logged with the digest's other titles in
+// push_log.meta so later sends (evening, breaking, blind spot) skip stories
+// the digest already covers, and so tomorrow's lead isn't today's again.
+type DigestLead = { lead: FeedArticle | null; titles: string[] };
 
-async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, today: string): Promise<DigestLine> {
-  const fallback: DigestLine = { line: '5 stories, 6 minutes.', titles: [] };
+async function getOrPickDigestLead(supabase: ReturnType<typeof createClient>, today: string): Promise<DigestLead> {
   const { data: cached } = await supabase
     .from('push_log')
     .select('meta')
     .eq('push_type', 'digest')
     .gte('sent_at', `${today}T00:00:00Z`)
-    .not('meta->>line', 'is', null)
+    .eq('meta->>v', '2')
     .limit(1);
   if (cached && cached.length > 0) {
-    const meta = cached[0].meta as { line: string; titles?: string[] };
-    return { line: meta.line, titles: Array.isArray(meta.titles) ? meta.titles : [] };
+    const meta = cached[0].meta as { lead?: FeedArticle; titles?: string[] };
+    return { lead: meta.lead ?? null, titles: Array.isArray(meta.titles) ? meta.titles : [] };
   }
 
   try {
     // Top stories come from the same place the app's Top News feed does —
-    // the recommender API. (The original get-or-create-daily-digest edge
-    // function was never deployed, so this path silently fell back to the
-    // generic line every morning. Found 2026-09-15.)
+    // the recommender API.
     const apiBase = (Deno.env.get('RECOMMENDER_API_URL') ?? '').replace(/\/$/, '');
     const apiKey = Deno.env.get('RECOMMENDER_API_KEY');
-    if (!apiBase || !apiKey) return fallback;
-    const digestRes = await fetch(`${apiBase}/v1/fallback-articles`, {
+    if (!apiBase || !apiKey) return { lead: null, titles: [] };
+    const feedRes = await fetch(`${apiBase}/v1/fallback-articles`, {
       headers: { 'X-API-Key': apiKey },
     });
-    const digest = await digestRes.json();
-    const titles: string[] = (digest?.articles ?? [])
-      .map((a: { title?: string; headline?: string }) => a?.title ?? a?.headline)
-      .filter(Boolean)
-      .slice(0, 5);
-    if (titles.length < 3) return fallback;
-    const withTitles = (line: string): DigestLine => ({ line, titles });
+    const articles: FeedArticle[] = (await feedRes.json())?.articles ?? [];
 
-    // Real headlines beat the generic line even without AI: if OpenAI is
-    // unavailable (no key, no credits, outage), send the top 3 titles as a
-    // wire brief instead of "5 stories, 6 minutes."
-    const trimTitle = (t: string) => {
-      const clean = t.replace(/\s+/g, ' ').trim();
-      return clean.length <= 48 ? clean : `${clean.slice(0, 45).replace(/[ ,;:–-]+\S*$/, '')}…`;
-    };
-    const headlineLine = titles.slice(0, 3).map(trimTitle).join('; ');
+    // The last two mornings' leads and digest titles count as repeats.
+    const since = new Date(Date.now() - 2 * 86400000).toISOString();
+    const { data: recent } = await supabase
+      .from('push_log')
+      .select('meta')
+      .eq('push_type', 'digest')
+      .gte('sent_at', since)
+      .limit(500);
+    const recentTitles = [...new Set(
+      (recent ?? []).flatMap((row) => {
+        const titles = (row.meta as { titles?: unknown })?.titles;
+        return Array.isArray(titles) ? titles.filter((t): t is string => typeof t === 'string') : [];
+      })
+    )];
 
-    const openaiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openaiKey) return withTitles(headlineLine);
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        max_tokens: 60,
-        temperature: 0.4,
-        messages: [
-          {
-            role: 'user',
-            content:
-              // Style C — punchy fragments (Ayuka's pick, 2026-09-15): short
-              // present-tense sentences, biggest story first, scannable
-              // within iOS's ~2-line lock-screen cutoff. The limit needs an
-              // example and a per-sentence cap to hold: asking for "max 140
-              // characters" alone produced 287 (2026-09-16).
-              `You write Praxis's morning push notification. Pick the three biggest stories below and write ONE line of three very short sentences, present tense, biggest first.\nHARD LIMIT: 140 characters for the whole line — it is a phone lock screen, anything longer is cut off. Each sentence must be under 45 characters.\nNo intro phrases, no quotes, no hashtags, no trailing commentary.\n\nExample of the right length: 'Treasury yields hit 5%. Crypto bill stalls in Congress. Voters reject the $5,000 checks.'\n\nHEADLINES:\n${titles.join('\n')}`,
-          },
-        ],
-      }),
-    });
-    const ai = await aiRes.json();
-    const line: string | undefined = ai?.choices?.[0]?.message?.content?.trim();
-    if (!line) return withTitles(headlineLine);
-    if (line.length <= 150) return withTitles(line);
-    // Over budget: keep whole sentences while they fit rather than throwing
-    // a good line away and shipping raw headlines instead.
-    const kept: string[] = [];
-    for (const sentence of line.split(/(?<=[.!?])\s+/)) {
-      if ([...kept, sentence].join(' ').length > 140) break;
-      kept.push(sentence);
-    }
-    return withTitles(kept.length > 0 ? kept.join(' ') : headlineLine);
+    const lead = pickDigestLead(articles, recentTitles);
+    const titles = [
+      ...(lead ? [lead.title] : []),
+      ...articles.map((a) => a.title).filter((t) => t && t !== lead?.title).slice(0, 4),
+    ];
+    return { lead, titles };
   } catch {
-    return fallback;
+    return { lead: null, titles: [] };
   }
 }
 
@@ -141,7 +111,7 @@ serve(async (req) => {
     });
   }
 
-  // Secret-gated test hooks: {"dry_line":true} returns today's alert line
+  // Secret-gated test hooks: {"dry_line":true} returns today's push copy
   // without sending anything; {"force_hour":N} targets local hour N instead
   // of 8 so the full pipeline can be exercised outside the morning window.
   let targetHour = TARGET_LOCAL_HOUR;
@@ -169,7 +139,6 @@ serve(async (req) => {
       const apiBase = (Deno.env.get('RECOMMENDER_API_URL') ?? '').replace(/\/$/, '');
       diag.hasBase = Boolean(apiBase);
       diag.hasKey = Boolean(Deno.env.get('RECOMMENDER_API_KEY'));
-      diag.hasOpenai = Boolean(Deno.env.get('OPENAI_API_KEY'));
       try {
         const r = await fetch(`${apiBase}/v1/fallback-articles`, {
           headers: { 'X-API-Key': Deno.env.get('RECOMMENDER_API_KEY') ?? '' },
@@ -180,8 +149,8 @@ serve(async (req) => {
       } catch (e) {
         diag.fetchError = String(e);
       }
-      const digestLine = await getOrCreateDigestLine(supabase, today);
-      return new Response(JSON.stringify({ ...digestLine, diag }), {
+      const { lead, titles } = await getOrPickDigestLead(supabase, today);
+      return new Response(JSON.stringify({ ...digestCopy(lead, FALLBACK_TIMEZONE), titles, diag }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -199,7 +168,8 @@ serve(async (req) => {
     // Guest devices (no account yet) get the same morning push, sent blind —
     // their reading lives on-device, so there is no completion state to check.
     const byUser = new Map<string, string[]>();
-    const guestTokens: string[] = [];
+    const guestTokens: Array<{ token: string; timezone: string }> = [];
+    const timezoneByUser = new Map<string, string>();
     // A device that registered before sign-in leaves a guest row behind with
     // the same token as its account row; sending to both double-pushes the
     // phone (seen 2026-09-19). The account row wins.
@@ -207,9 +177,12 @@ serve(async (req) => {
     for (const t of tokens) {
       if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== targetHour) continue;
       if (!t.user_id) {
-        if (!ownedTokens.has(t.token)) guestTokens.push(t.token);
+        if (!ownedTokens.has(t.token)) {
+          guestTokens.push({ token: t.token, timezone: t.timezone ?? FALLBACK_TIMEZONE });
+        }
         continue;
       }
+      timezoneByUser.set(t.user_id, t.timezone ?? FALLBACK_TIMEZONE);
       const list = byUser.get(t.user_id) ?? [];
       list.push(t.token);
       byUser.set(t.user_id, list);
@@ -242,7 +215,11 @@ serve(async (req) => {
     const pushesFor = (uid: string, type: string) =>
       (recentPushes ?? []).filter((p) => p.user_id === uid && p.push_type === type);
 
-    const { line, titles } = await getOrCreateDigestLine(supabase, today);
+    const { lead, titles } = await getOrPickDigestLead(supabase, today);
+    // Only what later sends need: the full feed row would bloat every log row.
+    const leadMeta = lead
+      ? { article_id: lead.article_id, cluster_id: lead.cluster_id, title: lead.title, reasons: lead.reasons ?? [] }
+      : null;
 
     const messages: unknown[] = [];
     const logRows: unknown[] = [];
@@ -268,8 +245,7 @@ serve(async (req) => {
           for (const token of byUser.get(p.id)!) {
             messages.push({
               to: token,
-              title: 'Praxis',
-              body: "Your feed's been busy. 5 stories whenever you're back.",
+              ...winbackCopy(),
               data: { type: 'digest' },
               sound: 'default',
             });
@@ -290,26 +266,26 @@ serve(async (req) => {
       // syncStreakBadge). Carrying it here keeps the number right on days the
       // app was not opened; a lapsed streak arrives as 0 and clears the badge.
       const badge = Math.max(0, Number(p.current_streak) || 0);
+      const copy = digestCopy(lead, timezoneByUser.get(p.id) ?? FALLBACK_TIMEZONE);
       for (const token of byUser.get(p.id)!) {
         messages.push({
           to: token,
-          title: 'Your Daily Digest is ready',
-          body: line,
+          ...copy,
           data: { type: 'digest' },
           sound: 'default',
           badge,
         });
       }
-      logRows.push({ user_id: p.id, push_type: 'digest', meta: { line, titles } });
+      // v:2 marks the one-story format; `line` stays for the evening dedupe.
+      logRows.push({ user_id: p.id, push_type: 'digest', meta: { v: 2, line: copy.body, titles, lead: leadMeta } });
     }
 
-    // Guest devices: one generic line, once a day at their local 8am.
+    // Guest devices: the same lead story, once a day at their local 8am.
     // No per-user log row (no user), and the hourly window is the dedupe.
-    for (const token of guestTokens) {
+    for (const { token, timezone } of guestTokens) {
       messages.push({
         to: token,
-        title: 'Your Daily Digest is ready',
-        body: line,
+        ...digestCopy(lead, timezone),
         data: { type: 'digest' },
         sound: 'default',
       });

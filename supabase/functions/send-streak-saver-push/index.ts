@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { STREAK_LINES, streakCopy } from '../_shared/pushFormat.ts';
 
 // Runs hourly via pg_cron (minute 30). Sends the evening streak saver at
 // 8:30pm local, only when the streak is real and today's digest isn't done.
@@ -13,14 +14,7 @@ const corsHeaders = {
 const TARGET_LOCAL_HOUR = 20; // fires at :30 past, so 8:30pm local
 const FALLBACK_TIMEZONE = 'America/New_York';
 const MIN_GAP_HOURS = 6;
-
-// Rotated copy — {n} is the current streak. Never the same line two days running.
-const LINES = [
-  (n: number) => `Your ${n}-day streak ends at midnight. 5 stories, 6 minutes.`,
-  (n: number) => `Still ${n} days strong. Today's digest keeps it that way.`,
-  (n: number) => `Day ${n + 1} is one digest away.`,
-  (n: number) => `${n} days of reading every side. Don't stop tonight.`,
-];
+const DAILY_CAP = 3;
 
 function nyDateKey(d = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
@@ -120,6 +114,13 @@ serve(async (req) => {
       );
       if (sentToday) continue;
 
+      // Shares the news pushes' cap of 3 a day (send-news-push DAILY_CAP).
+      const pushedToday = mine.filter(
+        (x) => ['digest', 'streak', 'news', 'breaking', 'split'].includes(x.push_type) &&
+          nyDateKey(new Date(x.sent_at)) === today
+      ).length;
+      if (pushedToday >= DAILY_CAP) continue;
+
       // At least 6 hours after the morning push.
       const lastDigestPush = mine
         .filter((x) => x.push_type === 'digest')
@@ -133,14 +134,13 @@ serve(async (req) => {
         .filter((x) => x.push_type === 'streak')
         .sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))[0];
       const lastIdx = (lastStreakPush?.meta as { lineIdx?: number } | null)?.lineIdx ?? -1;
-      let idx = Math.floor(Math.random() * LINES.length);
-      if (idx === lastIdx) idx = (idx + 1) % LINES.length;
+      let idx = Math.floor(Math.random() * STREAK_LINES.length);
+      if (idx === lastIdx) idx = (idx + 1) % STREAK_LINES.length;
 
       for (const token of byUser.get(p.id)!) {
         messages.push({
           to: token,
-          title: 'Praxis',
-          body: LINES[idx](streak),
+          ...streakCopy(streak, idx),
           data: { type: 'streak' },
           sound: 'default',
         });

@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  blindSpotCopy,
+  breakingCopy,
+  eveningCopy,
+} from "../_shared/pushFormat.ts";
 
 // Runs every 20 minutes. It sends, in order: the local 6pm edition,
 // high-consensus breaking news, then one-sided-coverage blind spots.
@@ -17,7 +22,8 @@ const BREAKING_MIN_SCORE = 1.7;
 const SPLIT_MIN_PUBLISHERS = 3;
 const SPLIT_MAX_AGE_HOURS = 12;
 const SPLIT_MIN_SCORE = 1.5;
-const DAILY_CAP = 4;
+// 2-3 a day (Ayuka, 2026-10-29): 8am + 6pm, a third only when it earns it.
+const DAILY_CAP = 3;
 
 type Article = {
   article_id: string;
@@ -28,6 +34,7 @@ type Article = {
   score: number;
   x: number | null;
   cluster_summary: string;
+  reasons?: string[];
 };
 
 type Cluster = {
@@ -60,20 +67,6 @@ function localTime(timezone: string): { hour: number; minute: number } | null {
   } catch {
     return null; // bad timezone string — skip rather than send at the wrong time
   }
-}
-
-function trimTitle(title: string, max = 60): string {
-  const clean = title.replace(/\s+/g, " ").trim();
-  if (clean.length <= max) return clean;
-  const cut = clean.slice(0, max - 1).replace(/[ ,;:–-]+\S*$/, "").trim();
-  return `${cut || clean.slice(0, max - 1)}…`;
-}
-
-// Push copy reads as sentences, not "title; title" fragment jumbles
-// (Ayuka, 2026-09-19): each headline stands alone, closed with a period.
-function sentence(title: string, max = 90): string {
-  const clean = trimTitle(title, max);
-  return /[.?!…]$/.test(clean) ? clean : `${clean}.`;
 }
 
 // Two headlines about the same story rarely match verbatim (the morning
@@ -363,7 +356,9 @@ serve(async (req) => {
       )
       .sort((a, b) => b.maxScore - a.maxScore);
 
-    // 1. Evening edition: users see two fresh clusters not sent to them in 48 hours.
+    // 1. Evening edition: one fresh cluster not sent to them in 48 hours.
+    // One story per push (Ayuka, 2026-10-29): two stacked headlines read as
+    // a clump on the lock screen.
     for (const profile of profiles ?? []) {
       const userTokens = eveningByUser.get(profile.id);
       if (!userTokens || profile.notify_news === false) continue;
@@ -379,17 +374,15 @@ serve(async (req) => {
       const selected = eveningCandidates.filter((cluster) =>
         !recentClusters.has(cluster.id) &&
         !sharesStoryWith(cluster.lead.title, digestTexts)
-      ).slice(0, 2);
-      if (selected.length < 2) continue;
-      const [first, second] = selected;
-      const line = `${sentence(first.lead.title)}\n${
-        sentence(second.lead.title)
-      }`;
+      );
+      if (selected.length < 1) continue;
+      const [first] = selected;
+      const copy = eveningCopy(first.lead);
+      const line = copy.body;
       for (const token of userTokens) {
         messages.push({
           to: token,
-          title: "This evening",
-          body: line,
+          ...copy,
           data: {
             type: "news",
             articleId: first.lead.article_id,
@@ -405,22 +398,17 @@ serve(async (req) => {
         meta: {
           slot: "evening",
           cluster_id: first.lead.cluster_id,
-          cluster_id_2: second.lead.cluster_id,
           article_id: first.lead.article_id,
           line,
         },
       });
     }
-    if (eveningCandidates.length >= 2) {
-      const [first, second] = eveningCandidates;
-      const line = `${sentence(first.lead.title)}\n${
-        sentence(second.lead.title)
-      }`;
+    if (eveningCandidates.length >= 1) {
+      const [first] = eveningCandidates;
       for (const token of guestTokens) {
         messages.push({
           to: token,
-          title: "This evening",
-          body: line,
+          ...eveningCopy(first.lead),
           data: {
             type: "news",
             articleId: first.lead.article_id,
@@ -460,12 +448,12 @@ serve(async (req) => {
         if (sharesStoryWith(breakingCluster.lead.title, digestTextsFor(rows))) {
           continue; // the digest already told them this story today
         }
-        const line = sentence(breakingCluster.lead.title, 140);
+        const copy = breakingCopy(breakingCluster.lead);
+        const line = copy.body;
         for (const token of userTokens) {
           messages.push({
             to: token,
-            title: "Breaking",
-            body: line,
+            ...copy,
             data: {
               type: "breaking",
               articleId: breakingCluster.lead.article_id,
@@ -495,10 +483,10 @@ serve(async (req) => {
         cluster,
         side: cluster.articles.length === cluster.xs.length &&
             cluster.xs.every((x) => x <= -0.3)
-          ? "left"
+          ? "left" as const
           : cluster.articles.length === cluster.xs.length &&
               cluster.xs.every((x) => x >= 0.3)
-          ? "right"
+          ? "right" as const
           : null,
       }))
       .filter(({ cluster, side }) =>
@@ -513,10 +501,8 @@ serve(async (req) => {
       )[0];
     if (splitCluster?.side) {
       const { cluster, side } = splitCluster;
-      const missingSide = side === "left" ? "right" : "left";
-      const line = `${
-        sentence(cluster.lead.title, 90)
-      }\nSo far only ${side}-leaning outlets are covering this. Nothing yet from the ${missingSide}.`;
+      const copy = blindSpotCopy(cluster.lead, side);
+      const line = copy.body;
       for (const profile of profiles ?? []) {
         const userTokens = activeByUser.get(profile.id);
         const rows = mine(profile.id);
@@ -536,8 +522,7 @@ serve(async (req) => {
         for (const token of userTokens) {
           messages.push({
             to: token,
-            title: "Blind spot",
-            body: line,
+            ...copy,
             data: {
               type: "split",
               articleId: cluster.lead.article_id,
