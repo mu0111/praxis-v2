@@ -9,6 +9,7 @@ import { useTheme } from '../hooks/useTheme';
 import {
   readReadingActivitySummary,
   subscribeReadingActivity,
+  toLocalDateKey,
   type ReadingActivitySummary,
 } from '../lib/readingActivity';
 
@@ -105,7 +106,7 @@ export default function ReadingActivityModal() {
               <View style={s.chart}>
                 {weekData.map((day) => {
                   const heightPct = (day.count / maxCount) * 100;
-                  const isToday = day.date === new Date().toISOString().split('T')[0];
+                  const isToday = day.date === toLocalDateKey(new Date());
                   return (
                     <View key={day.date} style={s.barCol}>
                       <Text style={[s.barCount, { color: day.count > 0 ? c.tint : c.textMuted }]}>

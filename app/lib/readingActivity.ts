@@ -31,6 +31,16 @@ type ReadingActivityListener = (summary: ReadingActivitySummary) => void;
 const listeners = new Map<string, Set<ReadingActivityListener>>();
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// YYYY-MM-DD on the phone's own calendar. toISOString() gives the UTC date,
+// so in the US every read after ~8 PM landed on tomorrow's bar and "reads
+// today" dropped to 0 (QA 2026-10-28).
+export const toLocalDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const buildStorageKey = (userId?: string | null) => `${STORAGE_PREFIX}:${userId ?? 'guest'}`;
 
 const readStorageValue = async (key: string) => {
@@ -95,7 +105,7 @@ const buildEmptySummary = (): ReadingActivitySummary => {
 
     buckets.push({
       day: DAY_LABELS[date.getDay()],
-      date: date.toISOString().split('T')[0],
+      date: toLocalDateKey(date),
       count: 0,
     });
   }
@@ -121,7 +131,7 @@ const buildSummary = (entries: ReadingActivityEntry[]): ReadingActivitySummary =
     const date = new Date(entry.readAt);
     if (Number.isNaN(date.getTime())) return;
 
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     dateCounts.set(dateKey, (dateCounts.get(dateKey) ?? 0) + 1);
 
     entry.topics.forEach((topic) => {
@@ -148,7 +158,7 @@ const buildSummary = (entries: ReadingActivityEntry[]): ReadingActivitySummary =
   for (let i = 0; i < 365; i += 1) {
     const cursor = new Date(today);
     cursor.setDate(today.getDate() - i);
-    const key = cursor.toISOString().split('T')[0];
+    const key = toLocalDateKey(cursor);
     if ((dateCounts.get(key) ?? 0) > 0) {
       streak += 1;
       continue;
