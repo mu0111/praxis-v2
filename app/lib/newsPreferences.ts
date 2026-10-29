@@ -1,3 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+
 export interface GraphPoint {
   x: number;
   y: number;
@@ -356,6 +359,11 @@ export const writeDigestPresets = (
 ) => {
   const storageKey = getDigestStorageKey(userId);
   writeStorageJson(storageKey, digests);
+  if (Platform.OS !== 'web') {
+    AsyncStorage.setItem(storageKey, JSON.stringify(digests)).catch((error) =>
+      console.warn(`Failed to persist ${storageKey} to AsyncStorage`, error),
+    );
+  }
 
   const scopedListeners = digestPresetListeners.get(storageKey);
   if (scopedListeners?.size) {
@@ -363,6 +371,37 @@ export const writeDigestPresets = (
     scopedListeners.forEach((listener) => listener(snapshot));
   }
 };
+
+// Saved presets are the one preference meant to outlive the session. On
+// native, sessionStorage is an in-memory shim, so they vanished on every
+// restart (QA 2026-10-28). Mirror them to AsyncStorage (above) and load them
+// back once at startup; the splash covers this read.
+const hydrateDigestPresets = async () => {
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((key) =>
+      key.startsWith('news_digests'),
+    );
+    if (!keys.length) return;
+
+    const entries = await AsyncStorage.multiGet(keys);
+    entries.forEach(([key, raw]) => {
+      // A preset saved this session wins over the copy on disk.
+      if (!raw || readStoredString(key) !== null) return;
+      writeStoredString(key, raw);
+
+      const scopedListeners = digestPresetListeners.get(key);
+      if (scopedListeners?.size) {
+        const userId = key === 'news_digests' ? null : key.slice('news_digests_'.length);
+        const snapshot = readDigestPresets(userId);
+        scopedListeners.forEach((listener) => listener(snapshot));
+      }
+    });
+  } catch (error) {
+    console.warn('Failed to load saved presets from AsyncStorage', error);
+  }
+};
+
+if (Platform.OS !== 'web') void hydrateDigestPresets();
 
 export const subscribeDigestPresets = (
   userId: string | null,

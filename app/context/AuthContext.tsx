@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { registerPushToken, syncStreakBadge, unregisterPushToken } from '../utils/notifications';
-import { readGuestMode, writeGuestMode } from '../lib/guestMode';
+import { loadGuestMode, readGuestMode, writeGuestMode } from '../lib/guestMode';
 import { trackAuth } from '../lib/analytics';
 import { transferGuestStreakToProfile } from '../lib/digestStreak';
 
@@ -67,10 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isGuestMode]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       if (session?.user) fetchProfile(session.user.id);
       else {
+        // A guest from a previous launch goes straight back to the feed;
+        // loading holds the splash until we know.
+        const wasGuest = await loadGuestMode();
+        if (wasGuest) setIsGuestMode(true);
         setProfile(null);
         setLoading(false);
       }
