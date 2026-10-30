@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
+import { fetch as expoFetch } from 'expo/fetch';
 import {
   ActiveQueryState,
   buildFeedPreferenceSignature,
@@ -492,7 +493,12 @@ const fetchTopicArticles = async (
     throw error;
   }
 
-  return Array.isArray(data?.articles) ? (data.articles as Article[]) : [];
+  // get-articles rows have the same raw shape as /v1/fallback-articles
+  // (publisher as a plain string), so they need the same mapping or the card
+  // shows "Unknown" for the outlet.
+  return Array.isArray(data?.articles)
+    ? data.articles.map(mapFallbackArticle).filter((article: Article) => Boolean(article.url))
+    : [];
 };
 
 const streamRecommendedArticles = async (
@@ -541,7 +547,11 @@ const streamRecommendedArticles = async (
     return liveArticles;
   }
 
-  const response = await fetch(
+  // React Native's built-in fetch never exposes response.body, so on the
+  // phone the stream always failed and the feed fell back to backup stories.
+  // expo/fetch streams natively; the web keeps the browser's fetch.
+  const streamFetch = (Platform.OS === 'web' ? fetch : expoFetch) as typeof fetch;
+  const response = await streamFetch(
     `${apiBaseUrl.replace(/\/$/, '')}/v1/recommendations/stream`,
     {
       method: 'POST',
@@ -575,12 +585,6 @@ const streamRecommendedArticles = async (
       : [];
   }
 
-  if (!response.body) {
-    throw new Error('Recommendations stream response body missing');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const streamedArticles: Article[] = [];
   const seenIds = new Set<number>();
   let buffer = '';
@@ -596,11 +600,8 @@ const streamRecommendedArticles = async (
     onArticle?.(mapped);
   };
 
-  while (!doneStreaming) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
+  const consumeText = (text: string) => {
+    buffer += text;
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
 
@@ -639,6 +640,26 @@ const streamRecommendedArticles = async (
         }
       }
     }
+  };
+
+  // No readable body (a fetch without streaming support): read the whole
+  // response and parse it the same way, rather than failing the feed.
+  if (!response.body || typeof TextDecoder === 'undefined') {
+    consumeText(`${await response.text()}\n\n`);
+    return streamedArticles;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (!doneStreaming) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    consumeText(decoder.decode(value, { stream: true }));
+  }
+
+  if (!doneStreaming) {
+    consumeText('\n\n');
   }
 
   return streamedArticles;
