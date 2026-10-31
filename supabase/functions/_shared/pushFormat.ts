@@ -20,6 +20,10 @@ export type FeedArticle = {
 
 const DIGEST_MINUTES = 6;
 const MAX_KICKER_LENGTH = 22;
+// About two lines of push body on an iPhone lock screen.
+const SHORT_HEADLINE_LENGTH = 90;
+// How far down the ranked feed the digest looks for a short headline.
+const LEAD_SEARCH_DEPTH = 8;
 
 // iOS shows about four lines of body on the lock screen. Real headlines run
 // up to ~190 characters, so this only catches pathological titles.
@@ -58,13 +62,12 @@ export function weekday(timezone: string): string {
   }
 }
 
+// Shorter format, Ayuka 2026-10-31 ("they seem long"): the count and time sit
+// in the title, the body is one headline and nothing else.
 export function digestCopy(lead: FeedArticle | null, timezone: string): PushCopy {
-  const title = `Your ${weekday(timezone)} 5`;
-  if (!lead) return { title, body: `5 stories, about ${DIGEST_MINUTES} minutes.` };
-  return {
-    title,
-    body: `${headline(lead.title)} Plus 4 more stories, about ${DIGEST_MINUTES} minutes.`,
-  };
+  const title = `Your ${weekday(timezone)} 5 · ${DIGEST_MINUTES} min`;
+  if (!lead) return { title, body: "Every side of today's news, in 5 stories." };
+  return { title, body: headline(lead.title) };
 }
 
 export function winbackCopy(): PushCopy {
@@ -155,8 +158,13 @@ export function pickDigestLead(
       };
     })
     .sort((a, b) => b.score - a.score);
-  const fresh = ranked.find(({ article }) =>
+  const fresh = ranked.filter(({ article }) =>
     !sharesStoryWith(article.title, recentTitles)
   );
-  return (fresh ?? ranked[0])?.article ?? null;
+  // Prefer a top story whose headline fits in about two lock-screen lines;
+  // a long headline is never cut, it just loses the lead slot.
+  const short = fresh.slice(0, LEAD_SEARCH_DEPTH).find(({ article }) =>
+    headline(article.title).length <= SHORT_HEADLINE_LENGTH
+  );
+  return (short ?? fresh[0] ?? ranked[0])?.article ?? null;
 }
