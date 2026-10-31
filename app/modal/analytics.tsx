@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text,
+  ActivityIndicator, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Switch, Text,
   TouchableOpacity, View,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polyline } from 'react-native-svg';
 
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { NewPeopleList } from '../components/analytics/NewPeopleList';
 import { useAuth } from '../context/AuthContext';
 import { isAnalyticsAdmin } from '../lib/analyticsAccess';
 import { supabase } from '../services/supabase';
@@ -134,15 +136,32 @@ function StatCard({ label, value, detail, prominent, delta }: { label: string; v
   );
 }
 
-export default function AnalyticsDashboard() {
+// A render error on this admin screen shows a message here instead of taking down the app.
+export default function AnalyticsScreen() {
+  return (
+    <ErrorBoundary
+      fallback={(
+        <SafeAreaView style={s.screen}><View style={s.restricted}><Ionicons name="alert-circle-outline" size={30} color={COLORS.green} /><Text style={s.restrictedTitle}>Analytics could not load</Text><Text style={s.restrictedCopy}>Something went wrong on this screen. The rest of the app is fine.</Text><TouchableOpacity style={s.backButton} onPress={() => router.back()}><Text style={s.backButtonText}>Back to Profile</Text></TouchableOpacity></View></SafeAreaView>
+      )}
+    >
+      <AnalyticsDashboard />
+    </ErrorBoundary>
+  );
+}
+
+function AnalyticsDashboard() {
   const { user, loading: authLoading } = useAuth();
   const [timeframe, setTimeframe] = useState<Timeframe>('28');
+  // On by default: team accounts, test devices and deleted accounts are left out of every number
+  // (the *_outside views, same as the website, 2026-10-31).
+  const [outsideOnly, setOutsideOnly] = useState(true);
   const [grain, setGrain] = useState<Grain>('weekly');
   const [daily, setDaily] = useState<DailyRow[]>([]);
   const [weekly, setWeekly] = useState<WeeklyRow[]>([]);
   const [aggregates, setAggregates] = useState<AggregateRow[]>([]);
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [latestEvent, setLatestEvent] = useState<string | null>(null);
+  const [actorDays, setActorDays] = useState<{ day: string; actor_key: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -152,14 +171,16 @@ export default function AnalyticsDashboard() {
     if (!authorized) return;
     setLoading(true);
     setError(null);
-    const [dailyResult, weeklyResult, aggregateResult, sourceResult, latestResult] = await Promise.all([
-      supabase.from('analytics_behavior_kpis_daily').select('*').order('day', { ascending: false }).limit(1000),
-      supabase.from('analytics_behavior_kpis_weekly').select('*').order('window_end_day', { ascending: false }).limit(1000),
-      supabase.from('analytics_kpi_daily').select('*').order('day', { ascending: false }).limit(1000),
-      supabase.from('analytics_source_engagement').select('*').order('day', { ascending: false }).limit(5000),
-      supabase.from('analytics_events').select('created_at').order('created_at', { ascending: false }).limit(1),
+    const scoped = (name: string) => (outsideOnly ? `${name}_outside` : name);
+    const [dailyResult, weeklyResult, aggregateResult, sourceResult, latestResult, actorResult] = await Promise.all([
+      supabase.from(scoped('analytics_behavior_kpis_daily')).select('*').order('day', { ascending: false }).limit(1000),
+      supabase.from(scoped('analytics_behavior_kpis_weekly')).select('*').order('window_end_day', { ascending: false }).limit(1000),
+      supabase.from(scoped('analytics_kpi_daily')).select('*').order('day', { ascending: false }).limit(1000),
+      supabase.from(scoped('analytics_source_engagement')).select('*').order('day', { ascending: false }).limit(5000),
+      supabase.from(scoped('analytics_events')).select('created_at').order('created_at', { ascending: false }).limit(1),
+      supabase.from(scoped('analytics_user_day_metrics')).select('day,actor_key').order('day', { ascending: false }).limit(20000),
     ]);
-    const failed = [dailyResult, weeklyResult, aggregateResult, sourceResult, latestResult].find((result) => result.error)?.error;
+    const failed = [dailyResult, weeklyResult, aggregateResult, sourceResult, latestResult, actorResult].find((result) => result.error)?.error;
     if (failed) {
       setError(failed.message);
     } else {
@@ -168,11 +189,12 @@ export default function AnalyticsDashboard() {
       setAggregates((aggregateResult.data ?? []) as AggregateRow[]);
       setSources((sourceResult.data ?? []) as SourceRow[]);
       setLatestEvent((latestResult.data?.[0] as { created_at?: string } | undefined)?.created_at ?? null);
+      setActorDays((actorResult.data ?? []) as { day: string; actor_key: string }[]);
     }
     setLoading(false);
   };
 
-  useEffect(() => { void loadDashboard(); }, [authorized]);
+  useEffect(() => { void loadDashboard(); }, [authorized, outsideOnly]);
 
   const cutoff = useMemo(() => {
     const days = TIMEFRAMES.find((item) => item.value === timeframe)?.days;
@@ -202,14 +224,15 @@ export default function AnalyticsDashboard() {
   const current = series.at(-1);
   const filteredAggregates = useMemo(() => aggregates.filter((row) => !cutoff || row.day >= cutoff), [aggregates, cutoff]);
   const overview = useMemo(() => ({
-    users: Math.max(...filteredAggregates.map((row) => number(row.blended_active_users)), 0),
+    // Distinct people in the window, same as the website (was the busiest single day's count).
+    users: new Set(actorDays.filter((row) => !cutoff || row.day >= cutoff).map((row) => row.actor_key)).size,
     opens: filteredAggregates.reduce((sum, row) => sum + number(row.article_opens), 0),
     ai: filteredAggregates.reduce((sum, row) => sum + number(row.ai_analysis_opens), 0),
     signups: filteredAggregates.reduce((sum, row) => sum + number(row.new_signups), 0),
     totalSignups: number(aggregates[0]?.cumulative_signups),
     impressions: filteredAggregates.reduce((sum, row) => sum + number(row.article_impressions), 0),
     loads: filteredAggregates.reduce((sum, row) => sum + number(row.feed_loads), 0),
-  }), [aggregates, filteredAggregates]);
+  }), [actorDays, aggregates, cutoff, filteredAggregates]);
   // Layout A (Ayuka, 2026-09-19, msg 1506): yesterday's pulse up top, and
   // window-over-window deltas on the tiles. The previous window is the
   // equal-length stretch right before the selected one; "All time" has no
@@ -230,12 +253,12 @@ export default function AnalyticsDashboard() {
     const prev = aggregates.filter((row) => row.day >= prevCutoff && row.day < cutoff);
     if (prev.length === 0) return null;
     return {
-      users: overview.users - Math.max(...prev.map((row) => number(row.blended_active_users)), 0),
+      users: overview.users - new Set(actorDays.filter((row) => row.day >= prevCutoff && row.day < cutoff).map((row) => row.actor_key)).size,
       opens: overview.opens - prev.reduce((sum, row) => sum + number(row.article_opens), 0),
       ai: overview.ai - prev.reduce((sum, row) => sum + number(row.ai_analysis_opens), 0),
       signups: overview.signups - prev.reduce((sum, row) => sum + number(row.new_signups), 0),
     };
-  }, [aggregates, cutoff, overview, timeframe]);
+  }, [actorDays, aggregates, cutoff, overview, timeframe]);
   const topSources = useMemo(() => {
     const grouped = new Map<string, { source: string; opens: number; reads: number; ai: number }>();
     sources.filter((row) => !cutoff || row.day >= cutoff).forEach((row) => {
@@ -257,7 +280,7 @@ export default function AnalyticsDashboard() {
       <ScrollView contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadDashboard()} tintColor={COLORS.green} />}>
         <View style={s.headerRow}><TouchableOpacity onPress={() => router.back()} style={s.iconButton}><Ionicons name="arrow-back" size={20} color={COLORS.text} /></TouchableOpacity><TouchableOpacity onPress={() => void loadDashboard()} style={s.iconButton} accessibilityLabel="Refresh analytics"><Ionicons name="refresh" size={20} color={COLORS.green} /></TouchableOpacity></View>
         <View style={s.titleRow}><View style={s.titleIcon}><Ionicons name="bar-chart-outline" size={24} color={COLORS.green} /></View><View style={{ flex: 1 }}><Text style={s.title}>Praxis KPI Dashboard</Text><Text style={s.subtitle}>Are users engaging with content, using AI, and exploring multiple perspectives?</Text></View></View>
-        <View style={s.controls}><Text style={s.controlLabel}>Window</Text><View style={s.pills}>{TIMEFRAMES.map((item) => <TouchableOpacity key={item.value} onPress={() => setTimeframe(item.value)} style={[s.pill, timeframe === item.value && s.pillActive]}><Text style={[s.pillText, timeframe === item.value && s.pillTextActive]}>{item.label}</Text></TouchableOpacity>)}</View><Text style={s.freshness}>Freshness: {latestEvent ? new Date(latestEvent).toLocaleString() : 'Collecting data'}</Text></View>
+        <View style={s.controls}><Text style={s.controlLabel}>Window</Text><View style={s.pills}>{TIMEFRAMES.map((item) => <TouchableOpacity key={item.value} onPress={() => setTimeframe(item.value)} style={[s.pill, timeframe === item.value && s.pillActive]}><Text style={[s.pillText, timeframe === item.value && s.pillTextActive]}>{item.label}</Text></TouchableOpacity>)}</View><View style={s.switchRow}><Switch value={outsideOnly} onValueChange={setOutsideOnly} trackColor={{ true: COLORS.green }} /><View style={{ flex: 1 }}><Text style={s.switchLabel}>Outside people only</Text><Text style={s.freshness}>{outsideOnly ? 'No team, cofounders or test phones' : 'Team and test phones included'}</Text></View></View><Text style={s.freshness}>Freshness: {latestEvent ? new Date(latestEvent).toLocaleString() : 'Collecting data'}</Text></View>
         {error ? <View style={s.error}><Text style={s.errorText}>Dashboard failed to load: {error}</Text></View> : null}
         {loading && !daily.length ? <ActivityIndicator size="large" color={COLORS.green} style={{ marginVertical: 56 }} /> : <>
           {pulse ? (
@@ -271,6 +294,7 @@ export default function AnalyticsDashboard() {
             </View>
           ) : null}
           <View style={s.sectionShell}><Text style={s.sectionTitle}>Aggregate Overview</Text><Text style={s.sectionDescription}>How much total activity happened in this selected window.</Text><View style={s.statGrid}><StatCard label="Total Unique Users" value={count(overview.users)} delta={deltas?.users} /><StatCard label="Total Article Opens" value={count(overview.opens)} delta={deltas?.opens} /><StatCard label="Total AI Insights" value={count(overview.ai)} delta={deltas?.ai} /><StatCard label="New Signups" value={count(overview.signups)} delta={deltas?.signups} /><StatCard label="Total Signups" value={count(overview.totalSignups)} /><StatCard label="Impressions" value={count(overview.impressions)} /><StatCard label="Feed Loads" value={count(overview.loads)} /><StatCard label="Loads per User" value={perUser(overview.users ? overview.loads / overview.users : 0)} /></View></View>
+          <NewPeopleList days={TIMEFRAMES.find((item) => item.value === timeframe)?.days ?? null} onTeamChanged={() => void loadDashboard()} />
           <View style={[s.sectionShell, s.behaviorShell]}><Text style={s.sectionTitle}>User Behavior</Text><Text style={s.sectionDescription}>Core per-user KPIs for people who are active in Praxis.</Text><View style={s.pills}>{(['monthly', 'weekly', 'daily'] as Grain[]).map((item) => <TouchableOpacity key={item} onPress={() => setGrain(item)} style={[s.pill, grain === item && s.pillActive]}><Text style={[s.pillText, grain === item && s.pillTextActive]}>{item[0].toUpperCase() + item.slice(1)}</Text></TouchableOpacity>)}</View><View style={s.statGrid}><StatCard prominent label="North Star: Informed Engagement" value={rate(current?.informedRate)} detail={`${count(current?.informed)} / ${count(current?.active)} users`} /><StatCard label={`${grain === 'monthly' ? 'Monthly' : grain === 'weekly' ? 'Weekly' : 'Daily'} Active Users`} value={count(current?.active)} /><StatCard label="AI Adoption" value={rate(current?.aiRate)} detail={`${count(current?.aiAdopted)} users`} /><StatCard label="Articles per User" value={perUser(current?.opensPerUser)} /><StatCard label="Cross-Spectrum" value={rate(current?.crossSpectrumRate)} detail={`${count(current?.crossSpectrum)} users`} /></View></View>
           <Text style={s.sectionTitle}>Scale</Text><Text style={s.sectionDescription}>Trusted active-user timelines over the selected timeframe.</Text><View style={s.panel}><Text style={s.panelTitle}>{grain === 'monthly' ? 'MAU' : grain === 'weekly' ? 'WAU' : 'DAU'} Trend</Text><Text style={s.panelDescription}>Active users by the selected reporting grain.</Text><Trend values={series.map((row) => row.active)} /><Text style={s.chartCaption}>{series.length ? `${shortDate(series[0].day)} to ${shortDate(series.at(-1)!.day)}` : 'No data yet'}</Text></View>
           <Text style={s.sectionTitle}>Behavior</Text><Text style={s.sectionDescription}>The KPI layer that measures content, AI understanding, and perspective broadening.</Text><View style={s.chartGrid}>{[{ label: 'Informed Engagement Rate', values: series.map((row) => row.informedRate * 100) }, { label: 'AI Adoption Rate', values: series.map((row) => row.aiRate * 100) }, { label: 'Articles per User', values: series.map((row) => row.opensPerUser) }, { label: 'Cross-Spectrum Rate', values: series.map((row) => row.crossSpectrumRate * 100) }].map((chart) => <View key={chart.label} style={s.panel}><Text style={s.panelTitle}>{chart.label}</Text><Trend values={chart.values} /><Text style={s.chartCaption}>Current: {chart.values.length ? chart.values.at(-1)?.toFixed(1) : '0.0'}</Text></View>)}</View>
@@ -285,7 +309,7 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background }, content: { padding: 16, paddingBottom: 48, gap: 14 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }, iconButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
   titleRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 6 }, titleIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.greenSoft }, title: { color: COLORS.text, fontSize: 25, fontWeight: '800', letterSpacing: -0.6 }, subtitle: { color: COLORS.muted, marginTop: 4, fontSize: 13, lineHeight: 19 },
-  controls: { backgroundColor: COLORS.card, borderColor: COLORS.border, borderWidth: 1, borderRadius: 20, padding: 14, gap: 10 }, controlLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase' }, freshness: { color: COLORS.muted, fontSize: 12 }, pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, pill: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#FAF7F0', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 }, pillActive: { backgroundColor: COLORS.green, borderColor: COLORS.green }, pillText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, pillTextActive: { color: '#FFFDF9' },
+  controls: { backgroundColor: COLORS.card, borderColor: COLORS.border, borderWidth: 1, borderRadius: 20, padding: 14, gap: 10 }, controlLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase' }, freshness: { color: COLORS.muted, fontSize: 12 }, switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, switchLabel: { color: COLORS.text, fontSize: 14, fontWeight: '800' }, pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, pill: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#FAF7F0', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 }, pillActive: { backgroundColor: COLORS.green, borderColor: COLORS.green }, pillText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, pillTextActive: { color: '#FFFDF9' },
   sectionShell: { backgroundColor: '#FCF8F0', borderColor: COLORS.border, borderWidth: 1, borderRadius: 24, padding: 16, gap: 10, marginTop: 6 }, behaviorShell: { backgroundColor: '#EEF5E8', borderColor: '#CFE0C3' }, sectionTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.2, marginTop: 8 }, sectionDescription: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginBottom: 3 }, statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   // flexBasis + flexGrow, not a % width: 48.7% + the 9px gap overflowed the
   // row by a hair on device and every tile wrapped to its own line — the
