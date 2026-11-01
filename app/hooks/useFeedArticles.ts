@@ -90,6 +90,8 @@ interface LoadPreferencesParams {
 }
 
 const RECENCY_HOURS_PROGRESSION = [168, 336, 504, 720];
+// /v1/articles/search returns at most 40 results per query.
+const DETERMINISTIC_SEARCH_MAX_RESULTS = 40;
 const DEFAULT_QUERY_RADIUS = 0.25;
 const FEED_CACHE_KEY = '__PRAXIS_MOBILE_FEED_CACHE__';
 const FEED_CACHE_STORAGE_KEY = 'praxis.mobileFeedCache.v1';
@@ -853,6 +855,65 @@ export const searchGraphArticles = async (
   return getTermMatchedArticles(broaderArticles, [normalizedQuery]).slice(0, limit);
 };
 
+// Several selected topics are searched one by one, the same way a single
+// topic is, instead of going to the AI stream (which widens each topic into
+// loosely related ones). Stories matching more of the topics come first;
+// within a tier the per-topic results are interleaved, each already newest
+// first, so every topic stays represented.
+export const searchGraphTopics = async (
+  topics: string[],
+  graphFilter: TopNewsGraphFilterState | null,
+  limit = 20,
+): Promise<Article[]> => {
+  const resultLists = await Promise.all(
+    topics.map((topic) =>
+      searchGraphArticles(topic, graphFilter, limit).catch((error) => {
+        console.warn('[useFeedArticles] Topic search failed', topic, error);
+        return [] as Article[];
+      }),
+    ),
+  );
+
+  const matchCounts = new Map<number, number>();
+  resultLists.forEach((list) => {
+    new Set(list.map((article) => article.id)).forEach((id) => {
+      matchCounts.set(id, (matchCounts.get(id) ?? 0) + 1);
+    });
+  });
+
+  const interleaved: Article[] = [];
+  const seenIds = new Set<number>();
+  const longest = Math.max(0, ...resultLists.map((list) => list.length));
+  for (let index = 0; index < longest; index += 1) {
+    resultLists.forEach((list) => {
+      const article = list[index];
+      if (article && !seenIds.has(article.id)) {
+        seenIds.add(article.id);
+        interleaved.push(article);
+      }
+    });
+  }
+
+  return interleaved
+    .map((article, order) => ({ article, order }))
+    .sort((a, b) =>
+      (matchCounts.get(b.article.id) ?? 0) - (matchCounts.get(a.article.id) ?? 0) ||
+      a.order - b.order,
+    )
+    .map(({ article }) => article);
+};
+
+// A deterministic Graph request carries either typed terms (prompt) or only
+// selected topics (empty prompt).
+export const searchGraphRequest = (
+  request: RecommendationRequestState,
+  graphFilter: TopNewsGraphFilterState | null,
+  limit = 20,
+): Promise<Article[]> =>
+  request.prompt.trim().length > 0
+    ? searchGraphArticles(request.prompt, graphFilter, limit)
+    : searchGraphTopics(request.topics ?? [], graphFilter, limit);
+
 export const fetchLiveArticleById = async (articleId: number): Promise<Article | null> => {
   const { apiBaseUrl, isEnabled } = getRecommenderConfig();
   if (!isEnabled || !apiBaseUrl) return null;
@@ -1191,8 +1252,8 @@ export function useFeedArticles() {
     }
 
     if (recommendationRequest.searchStrategy === 'deterministic') {
-      const directResults = await searchGraphArticles(
-        recommendationRequest.prompt,
+      const directResults = await searchGraphRequest(
+        recommendationRequest,
         deriveGraphFilterFromRequest(recommendationRequest),
       );
       replaceArticles(directResults, 'query');
@@ -1580,6 +1641,28 @@ export function useFeedArticles() {
         currentRequestRef.current === currentRequest;
       const excludeIds = Array.from(seenArticleIdsRef.current);
       const seenIdsBeforeRequest = new Set(seenArticleIdsRef.current);
+      if (currentRequest.searchStrategy === 'deterministic') {
+        // Searches page by asking the same search for its larger result set
+        // and keeping the unseen stories. Never the AI stream, which pads
+        // with unrelated articles.
+        const moreResults = await searchGraphRequest(
+          currentRequest,
+          deriveGraphFilterFromRequest(currentRequest),
+          DETERMINISTIC_SEARCH_MAX_RESULTS,
+        );
+        if (!isSameQueryContext()) {
+          return [];
+        }
+        const appended: Article[] = [];
+        moreResults.forEach((article) => {
+          if (appendStreamArticle(article)) appended.push(article);
+        });
+        if (appended.length === 0) {
+          setIsAllCaughtUp(true);
+        }
+        return appended;
+      }
+
       const currentRecencyHours =
         RECENCY_HOURS_PROGRESSION[currentRecencyIndexRef.current] ||
         RECENCY_HOURS_PROGRESSION[0];

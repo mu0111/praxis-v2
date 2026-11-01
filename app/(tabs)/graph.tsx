@@ -51,7 +51,7 @@ import {
 import { buildHref } from '../lib/buildHref';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
 import { requestDailyDigestExit, writeDailyDigestOpenRequest } from '../lib/dailyDigest';
-import { searchGraphArticles } from '../hooks/useFeedArticles';
+import { searchGraphRequest } from '../hooks/useFeedArticles';
 
 const logoAp = require('../../assets/logos/ap.png');
 const logoAtlantic = require('../../assets/logos/atlantic.png');
@@ -1240,7 +1240,7 @@ export default function GraphScreen() {
     nextPromptTerms: string[],
   ) => {
     const trimmed = query.trim();
-    if (!trimmed) return;
+    if (!trimmed && nextTopics.length === 0) return;
     if (isApplying) return;
     setIsApplying(true);
 
@@ -1258,7 +1258,7 @@ export default function GraphScreen() {
     try {
       // This is the only live lookup a free-text Graph search performs. The
       // helper uses the five-minute article cache and never calls AI.
-      const prefetchedArticles = await searchGraphArticles(trimmed, {
+      const prefetchedArticles = await searchGraphRequest(nextRecommendationRequest, {
         position: { ...currentGraphPosition },
         radius: radiusPercent,
       });
@@ -1309,6 +1309,12 @@ export default function GraphScreen() {
     // area without an AI stream.
     if (selectedTopics.length === 1 && promptTerms.length === 0) {
       void runDeterministicGraphSearch(selectedTopics[0], selectedTopics, []);
+      return;
+    }
+    // Several topics: an empty query searches each topic on its own and puts
+    // stories matching more of them first (see searchGraphTopics).
+    if (selectedTopics.length > 1) {
+      void runDeterministicGraphSearch('', selectedTopics, []);
       return;
     }
     applyGraphChanges(selectedTopics, promptTerms);
