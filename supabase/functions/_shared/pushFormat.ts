@@ -15,6 +15,8 @@ export type FeedArticle = {
   image_url?: string | null;
   url?: string | null;
   reasons?: string[];
+  // The article's own topics, strongest first (/v1/graph/article/{id}).
+  topics?: string[];
   meta?: { summary?: string } | null;
 };
 
@@ -37,9 +39,14 @@ export function headline(title: string): string {
   return /[.?!…"'”’]$/.test(clean) ? clean : `${clean}.`;
 }
 
-// The feed's reasons look like "topics: Billionaire Tax Debate, California
-// Tax Policy". The first topic short enough to sit in the title is the label.
+// The label is the article's strongest topic short enough to sit in the
+// title. The feed's reasons ("topics: Economy, Elections") are only the broad
+// buckets the story was filed under, alphabetical, so they are the fallback:
+// a rally story came out as "Economy" (2026-11-01).
 export function kicker(article: FeedArticle): string | null {
+  const own = (article.topics ?? []).map((t) => t.trim())
+    .find((t) => t.length > 0 && t.length <= MAX_KICKER_LENGTH);
+  if (own) return own;
   for (const reason of article.reasons ?? []) {
     const match = /^topics:\s*(.+)$/i.exec(reason);
     if (!match) continue;

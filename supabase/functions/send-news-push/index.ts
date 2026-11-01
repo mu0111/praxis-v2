@@ -35,6 +35,7 @@ type Article = {
   x: number | null;
   cluster_summary: string;
   reasons?: string[];
+  topics?: string[];
 };
 
 type Cluster = {
@@ -128,6 +129,30 @@ async function chunkedExpoSend(messages: unknown[]): Promise<void> {
       body: JSON.stringify(messages.slice(i, i + 100)),
     });
   }
+}
+
+// The evening title is the lead's own strongest topic (see kicker). Looked
+// up only for leads about to be sent, once per lead per run; on any failure
+// the lead keeps the feed's reasons as the fallback label.
+const topicLookups = new Map<string, Promise<Article>>();
+function withTopics(lead: Article, apiBase: string): Promise<Article> {
+  const key = String(lead.article_id);
+  let pending = topicLookups.get(key);
+  if (!pending) {
+    pending = fetch(`${apiBase}/v1/graph/article/${encodeURIComponent(key)}`, {
+      headers: { "X-API-Key": Deno.env.get("RECOMMENDER_API_KEY") ?? "" },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((focus) => {
+        const topics = Array.isArray(focus?.topics)
+          ? focus.topics.filter((t: unknown): t is string => typeof t === "string")
+          : [];
+        return topics.length > 0 ? { ...lead, topics } : lead;
+      })
+      .catch(() => lead);
+    topicLookups.set(key, pending);
+  }
+  return pending;
 }
 
 function groupClusters(articles: Article[]): Cluster[] {
@@ -377,7 +402,7 @@ serve(async (req) => {
       );
       if (selected.length < 1) continue;
       const [first] = selected;
-      const copy = eveningCopy(first.lead);
+      const copy = eveningCopy(await withTopics(first.lead, apiBase));
       const line = copy.body;
       for (const token of userTokens) {
         messages.push({
@@ -405,10 +430,13 @@ serve(async (req) => {
     }
     if (eveningCandidates.length >= 1) {
       const [first] = eveningCandidates;
+      const guestCopy = guestTokens.length > 0
+        ? eveningCopy(await withTopics(first.lead, apiBase))
+        : null;
       for (const token of guestTokens) {
         messages.push({
           to: token,
-          ...eveningCopy(first.lead),
+          ...guestCopy,
           data: {
             type: "news",
             articleId: first.lead.article_id,
