@@ -14,6 +14,18 @@ type WindowRow = {
   returning: number;
   reads: number;
   quick: number;
+  bots?: number;
+};
+
+type DayRow = {
+  day: string;
+  users: number;
+  new: number;
+  returning: number;
+  reads: number;
+  quick: number;
+  bots: number;
+  people: { person: string; reads: number; new: boolean }[];
 };
 
 type PersonRow = {
@@ -30,7 +42,7 @@ type PersonRow = {
   windows: Partial<Record<WindowKey, { reads: number; returning: boolean }>>;
 };
 
-type Overview = { time_zone: string; windows: WindowRow[]; people: PersonRow[] };
+type Overview = { time_zone: string; windows: WindowRow[]; days?: DayRow[]; people: PersonRow[] };
 
 const COLORS = {
   card: '#FFFDF9', text: '#302C27', muted: '#7E766C', border: '#E3DACB', green: '#5F7D4D', greenSoft: '#E7F0DF',
@@ -51,17 +63,22 @@ const personName = (row: PersonRow) => {
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 // Who is using Praxis: real users, new vs returning and reads for each period, plus the people
-// behind them. Tapping a period filters the list. Same analytics_people_overview numbers as the website.
+// behind them. Tapping a period filters the list; tapping a day opens that day's people (Ayuka's pick A,
+// 2026-11-03). Same analytics_people_overview numbers as the website.
 export function PeopleOverview({ outsideOnly, onSettled, onTeamChanged }: { outsideOnly: boolean; onSettled: () => void; onTeamChanged: () => void }) {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WindowKey>('days7');
   const [showAll, setShowAll] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
+  const [openDay, setOpenDay] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
-    const { data: result, error: rpcError } = await supabase.rpc('analytics_people_overview', { p_include_team: !outsideOnly });
+    const call = () => supabase.rpc('analytics_people_overview', { p_include_team: !outsideOnly });
+    let { data: result, error: rpcError } = await call();
+    // A cold database can push the first call past the 8s limit; the second runs warm (~0.4s).
+    if (rpcError?.message.includes('statement timeout')) ({ data: result, error: rpcError } = await call());
     if (rpcError) setError(rpcError.message);
     else setData(result as Overview);
   }, [outsideOnly]);
@@ -91,6 +108,7 @@ export function PeopleOverview({ outsideOnly, onSettled, onTeamChanged }: { outs
   const people = (data?.people ?? []).filter((row) => row.windows[selected]);
   const visible = showAll ? people : people.slice(0, PREVIEW_COUNT);
   const singleDay = selected === 'today' || selected === 'yesterday';
+  const byPerson = new Map((data?.people ?? []).map((row) => [row.person, row]));
 
   return (
     <View style={s.shell}>
@@ -124,7 +142,55 @@ export function PeopleOverview({ outsideOnly, onSettled, onTeamChanged }: { outs
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={s.note}>Plus {plural(period?.quick ?? 0, 'quick visit')} {singleDay ? selected : `in the last ${period?.label ?? ''}`} (no account, no read, under 10 seconds). Not counted as users.</Text>
+        <Text style={s.note}>Plus {plural(period?.quick ?? 0, 'quick visit')} {singleDay ? selected : `in the last ${period?.label ?? ''}`} (no account, no read, under 10 seconds).{period?.bots ? ` ${plural(period.bots, 'likely bot')} left out.` : ''} Neither counts as users.</Text>
+        {data.days?.length ? <>
+          <Text style={s.peopleTitle}>Day by day</Text>
+          <View style={s.box}>
+            <View style={s.headRow}>
+              <Text style={[s.head, s.nameCell]} />
+              <Text style={[s.head, s.usersCell]}>Users</Text>
+              <Text style={[s.head, s.newCell]}>New</Text>
+              <Text style={[s.head, s.returningCell]}>Returning</Text>
+              <Text style={[s.head, s.readsCell]}>Reads</Text>
+            </View>
+            {data.days.map((day) => {
+              const open = openDay === day.day;
+              return (
+                <View key={day.day} style={[s.dayWrap, open && s.dayWrapOpen]}>
+                  <TouchableOpacity onPress={() => setOpenDay(open ? null : day.day)} style={s.dayRow}>
+                    <Text style={[s.dayName, s.nameCell]} numberOfLines={1}>
+                      <Text style={s.chevron}>{open ? '▾ ' : '▸ '}</Text>{rowDay(day.day)}
+                    </Text>
+                    <Text style={[s.dayValue, s.usersValue, s.dayUsers, s.usersCell]}>{day.users}</Text>
+                    <Text style={[s.dayValue, s.newCell]}>{day.new}</Text>
+                    <Text style={[s.dayValue, s.returningCell]}>{day.returning}</Text>
+                    <Text style={[s.dayValue, s.readsCell]}>{day.reads}</Text>
+                  </TouchableOpacity>
+                  {open ? (
+                    <View style={s.dayPeople}>
+                      {day.people.map((entry, index) => {
+                        const row = byPerson.get(entry.person);
+                        return (
+                          <View key={entry.person} style={[s.dayPerson, index > 0 && s.personBorder]}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={s.who} numberOfLines={1}>{row ? personName(row) : 'Guest'}</Text>
+                              <Text style={s.meta}>{plural(entry.reads, 'read')}</Text>
+                            </View>
+                            <View style={[s.tag, entry.new ? s.tagNew : s.tagReturning]}>
+                              <Text style={[s.tagText, { color: entry.new ? COLORS.blue : COLORS.green }]}>{entry.new ? 'New' : 'Returning'}</Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                      {day.people.length === 0 ? <Text style={s.meta}>No users this day.</Text> : null}
+                      <Text style={[s.meta, { marginTop: 4 }]}>Also {plural(day.quick, 'quick visit')}, {plural(day.bots, 'likely bot')}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </> : null}
         <Text style={s.peopleTitle}>People, {singleDay ? selected : `last ${period?.label ?? ''}`} ({people.length})</Text>
         <View style={s.box}>
           {visible.map((row, index) => {
@@ -150,7 +216,7 @@ export function PeopleOverview({ outsideOnly, onSettled, onTeamChanged }: { outs
                 </View>
                 <Text style={s.meta}>
                   Seen {seenTime(row.last_seen_at, data.time_zone)} · {signIn} · {plural(row.active_days, 'day')}
-                  {row.platforms === 'Web' ? '' : ` · ${plural(stats?.reads ?? 0, 'read')}`}
+                  {` · ${plural(stats?.reads ?? 0, 'read')}`}
                 </Text>
               </View>
             );
@@ -162,7 +228,7 @@ export function PeopleOverview({ outsideOnly, onSettled, onTeamChanged }: { outs
             </TouchableOpacity>
           ) : null}
         </View>
-        <Text style={s.note}>Users = accounts, plus guests who read something or stayed 10+ seconds. Returning = came back on a different day from their first visit. Reads are iPhone only, and any swipe counts as a read.</Text>
+        <Text style={s.note}>Users = accounts, plus guests who read something or stayed 10+ seconds. Returning = came back on a different day from their first visit. Likely bots = website guests whose browser reports automation, or with no read and no real tap or scroll at a full-screen size with no browser toolbar. Any swipe counts as a read. Website guest reads count from Nov 3.</Text>
       </> : null}
     </View>
   );
@@ -205,4 +271,13 @@ const s = StyleSheet.create({
   more: { borderTopWidth: 1, borderTopColor: '#EEE7DB', paddingVertical: 10, alignItems: 'center' },
   moreText: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
   error: { color: '#A94734', fontSize: 13, lineHeight: 18 },
+  dayWrap: { borderTopWidth: 1, borderTopColor: '#EEE7DB', marginHorizontal: -4, paddingHorizontal: 4 },
+  dayWrapOpen: { backgroundColor: '#F4F1E9', borderRadius: 9 },
+  dayRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  dayName: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  chevron: { color: COLORS.green, fontSize: 10 },
+  dayValue: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
+  dayUsers: { fontSize: 17 },
+  dayPeople: { paddingBottom: 8 },
+  dayPerson: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
 });
