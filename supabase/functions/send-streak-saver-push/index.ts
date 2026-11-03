@@ -17,6 +17,8 @@ const corsHeaders = {
 const TARGET_LOCAL_HOUR = 20; // fires at :30 past, so 8:30pm local
 const LAST_CALL_NY_HOUR = 22; // 10:30pm New York, 90 minutes before reset
 const LAST_CALL_MIN_GAP_MS = 60 * 60000;
+// Ayuka 11/03: not spammy. Only streaks over 3 days, and never as a 4th push.
+const LAST_CALL_MIN_STREAK = 4;
 const FALLBACK_TIMEZONE = 'America/New_York';
 const MIN_GAP_HOURS = 6;
 const DAILY_CAP = 3;
@@ -130,6 +132,7 @@ serve(async (req) => {
       if (kind === 'evening') {
         if (streakToday.length > 0) continue;
       } else {
+        if (streak < LAST_CALL_MIN_STREAK) continue;
         const evening = streakToday.find((x) => !isLastCall(x));
         if (!evening || streakToday.some(isLastCall)) continue;
         if (Date.now() - Date.parse(evening.sent_at) < LAST_CALL_MIN_GAP_MS) continue;
