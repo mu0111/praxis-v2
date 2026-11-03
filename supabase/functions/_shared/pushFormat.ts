@@ -92,6 +92,10 @@ export function breakingCopy(lead: FeedArticle): PushCopy {
   return { title: "Breaking", body: headline(lead.title) };
 }
 
+export function electionResultsCopy(lead: FeedArticle): PushCopy {
+  return { title: "🗳️ Election results", body: headline(lead.title) };
+}
+
 export function blindSpotCopy(lead: FeedArticle, side: "left" | "right"): PushCopy {
   return {
     title: "Blind Spot",

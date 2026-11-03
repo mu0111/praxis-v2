@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   blindSpotCopy,
   breakingCopy,
+  electionResultsCopy,
   eveningCopy,
 } from "../_shared/pushFormat.ts";
 
@@ -24,6 +25,19 @@ const SPLIT_MAX_AGE_HOURS = 12;
 const SPLIT_MIN_SCORE = 1.5;
 // 2-3 a day (Ayuka, 2026-10-29): 8am + 6pm, a third only when it earns it.
 const DAILY_CAP = 3;
+
+// Election Day (Ayuka, 2026-11-03): the 6pm edition leads with an election
+// story, and one results push may go out from 7pm to midnight local, past
+// the usual 10pm quiet hour, when 3+ outlets report a call. Streak pushes
+// don't count toward its cap; news pushes still max out at 3.
+const ELECTION_DAY = "2026-11-03";
+const ELECTION_STORY = /\b(midterms?|elections?|ballots?|voters?|voting|polls?|turnout)\b/i;
+const ELECTION_CALL =
+  /\b(wins?|won|projected|projects|called|defeats?|flips?|retains?|keeps?|holds?|captures?|concedes?|victory|re-?elected|control of)\b/i;
+const ELECTION_CONTEST =
+  /\b(midterms?|elections?|race|seat|governor|majority|control of (the )?(house|senate)|house control|senate control)\b/i;
+const RESULTS_MIN_PUBLISHERS = 3;
+const RESULTS_MAX_AGE_HOURS = 3;
 
 type Article = {
   article_id: string;
@@ -258,6 +272,8 @@ serve(async (req) => {
 
     const eveningByUser = new Map<string, string[]>();
     const activeByUser = new Map<string, string[]>();
+    const resultsByUser = new Map<string, string[]>();
+    const electionDay = nyDateKey() === ELECTION_DAY;
     const guestTokens: string[] = [];
     // A device that registered before sign-in leaves a guest row behind with
     // the same token as its account row; sending to both double-pushes the
@@ -286,10 +302,19 @@ serve(async (req) => {
         list.push(token.token);
         activeByUser.set(token.user_id, list);
       }
+      if (electionDay && time.hour >= 19 && time.hour <= 23) {
+        const list = resultsByUser.get(token.user_id) ?? [];
+        list.push(token.token);
+        resultsByUser.set(token.user_id, list);
+      }
     }
 
     const userIds = [
-      ...new Set([...eveningByUser.keys(), ...activeByUser.keys()]),
+      ...new Set([
+        ...eveningByUser.keys(),
+        ...activeByUser.keys(),
+        ...resultsByUser.keys(),
+      ]),
     ];
     const { data: profiles } = userIds.length > 0
       ? await supabase.from("profiles").select("id, notify_news").in(
@@ -375,11 +400,16 @@ serve(async (req) => {
             )
           ).length >= DAILY_CAP;
 
+    const isElection = (cluster: Cluster) =>
+      electionDay && ELECTION_STORY.test(cluster.lead.title);
     const eveningCandidates = clusters
       .filter((cluster) =>
-        cluster.maxScore >= 1.5 && withinHours(cluster.newest, 12)
+        (cluster.maxScore >= 1.5 || (isElection(cluster) && cluster.maxScore >= 1.0)) &&
+        withinHours(cluster.newest, 12)
       )
-      .sort((a, b) => b.maxScore - a.maxScore);
+      .sort((a, b) =>
+        Number(isElection(b)) - Number(isElection(a)) || b.maxScore - a.maxScore
+      );
 
     // 1. Evening edition: one fresh cluster not sent to them in 48 hours.
     // One story per push (Ayuka, 2026-10-29): two stacked headlines read as
@@ -503,6 +533,71 @@ serve(async (req) => {
         });
       }
       alertedClusters.add(breakingCluster.id);
+    }
+
+    // 2b. Election results: the best-covered fresh call, once per user tonight.
+    const callOf = (cluster: Cluster) =>
+      cluster.articles
+        .filter((a) => ELECTION_CALL.test(a.title) && ELECTION_CONTEST.test(a.title))
+        .sort((a, b) => b.score - a.score)[0];
+    const resultsCluster = electionDay
+      ? clusters
+        .filter((cluster) =>
+          cluster.publishers.size >= RESULTS_MIN_PUBLISHERS &&
+          withinHours(cluster.newest, RESULTS_MAX_AGE_HOURS) &&
+          !alertedClusters.has(cluster.id) && callOf(cluster)
+        )
+        .sort((a, b) =>
+          b.publishers.size - a.publishers.size || b.maxScore - a.maxScore
+        )[0]
+      : undefined;
+    if (resultsCluster) {
+      const lead = callOf(resultsCluster)!;
+      const copy = electionResultsCopy(lead);
+      const newsToday = (userId: string, rows: typeof recentPushes) =>
+        (rows ?? []).filter((row) =>
+          ["digest", "news", "breaking", "split"].includes(row.push_type) &&
+          nyDateKey(new Date(row.sent_at)) === today
+        ).length +
+        logRows.filter((row) =>
+          row.user_id === userId &&
+          ["digest", "news", "breaking", "split"].includes(row.push_type)
+        ).length;
+      for (const profile of profiles ?? []) {
+        const userTokens = resultsByUser.get(profile.id);
+        const rows = mine(profile.id);
+        if (
+          !userTokens || profile.notify_news === false ||
+          newsToday(profile.id, rows) >= DAILY_CAP ||
+          sentWithin(rows, "breaking", 6) ||
+          logRows.some((row) => row.user_id === profile.id && row.push_type === "breaking")
+        ) continue;
+        for (const token of userTokens) {
+          messages.push({
+            to: token,
+            ...copy,
+            data: {
+              type: "breaking",
+              articleId: lead.article_id,
+              clusterId: lead.cluster_id,
+            },
+            sound: "default",
+          });
+          breaking += 1;
+        }
+        logRows.push({
+          user_id: profile.id,
+          push_type: "breaking",
+          meta: {
+            kind: "election_results",
+            cluster_id: lead.cluster_id,
+            article_id: lead.article_id,
+            publishers: resultsCluster.publishers.size,
+            line: copy.body,
+          },
+        });
+      }
+      alertedClusters.add(resultsCluster.id);
     }
 
     // 3. Blind spot: a new cluster covered only by publishers on one side.
