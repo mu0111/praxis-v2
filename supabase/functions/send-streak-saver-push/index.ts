@@ -1,9 +1,12 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { STREAK_LINES, streakCopy } from '../_shared/pushFormat.ts';
+import { STREAK_LINES, streakCopy, streakLastCallCopy } from '../_shared/pushFormat.ts';
 
 // Runs hourly via pg_cron (minute 30). Sends the evening streak saver at
-// 8:30pm local, only when the streak is real and today's digest isn't done.
+// 8:30pm local, only when the streak is real and today's digest isn't done,
+// then a last call at 10:30pm New York (streaks reset at New York midnight)
+// to anyone who got the evening push an hour or more earlier and still
+// hasn't read. Both are push_type 'streak' (meta.kind) and share the cap.
 // Spec: work/praxis/notifications-spec-final-2026-09-10.md (Ada, approved by Ayuka).
 
 const corsHeaders = {
@@ -12,6 +15,8 @@ const corsHeaders = {
 };
 
 const TARGET_LOCAL_HOUR = 20; // fires at :30 past, so 8:30pm local
+const LAST_CALL_NY_HOUR = 22; // 10:30pm New York, 90 minutes before reset
+const LAST_CALL_MIN_GAP_MS = 60 * 60000;
 const FALLBACK_TIMEZONE = 'America/New_York';
 const MIN_GAP_HOURS = 6;
 const DAILY_CAP = 3;
@@ -70,10 +75,17 @@ serve(async (req) => {
       });
     }
 
+    const isLastCallHour = localHour('America/New_York') === LAST_CALL_NY_HOUR;
     const byUser = new Map<string, string[]>();
+    const kindByUser = new Map<string, 'evening' | 'last'>();
     for (const t of tokens) {
       if (!t.user_id) continue; // guests have no streak to save
-      if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== TARGET_LOCAL_HOUR) continue;
+      const evening = localHour(t.timezone ?? FALLBACK_TIMEZONE) === TARGET_LOCAL_HOUR;
+      if (!evening && !isLastCallHour) continue;
+      // The evening push wins when both land in the same run (Mountain time).
+      if (evening || !kindByUser.has(t.user_id)) {
+        kindByUser.set(t.user_id, evening ? 'evening' : 'last');
+      }
       const list = byUser.get(t.user_id) ?? [];
       list.push(t.token);
       byUser.set(t.user_id, list);
@@ -109,10 +121,19 @@ serve(async (req) => {
       if (p.streak_last_completed_date !== yesterday) continue;
 
       const mine = (recentPushes ?? []).filter((x) => x.user_id === p.id);
-      const sentToday = mine.some(
+      const streakToday = mine.filter(
         (x) => x.push_type === 'streak' && nyDateKey(new Date(x.sent_at)) === today
       );
-      if (sentToday) continue;
+      const isLastCall = (x: { meta: unknown }) =>
+        (x.meta as { kind?: string } | null)?.kind === 'last';
+      const kind = kindByUser.get(p.id) ?? 'evening';
+      if (kind === 'evening') {
+        if (streakToday.length > 0) continue;
+      } else {
+        const evening = streakToday.find((x) => !isLastCall(x));
+        if (!evening || streakToday.some(isLastCall)) continue;
+        if (Date.now() - Date.parse(evening.sent_at) < LAST_CALL_MIN_GAP_MS) continue;
+      }
 
       // Shares the news pushes' cap of 3 a day (send-news-push DAILY_CAP).
       const pushedToday = mine.filter(
@@ -125,27 +146,35 @@ serve(async (req) => {
       const lastDigestPush = mine
         .filter((x) => x.push_type === 'digest')
         .sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))[0];
-      if (lastDigestPush && Date.now() - Date.parse(lastDigestPush.sent_at) < MIN_GAP_HOURS * 3600000) {
+      if (kind === 'evening' && lastDigestPush &&
+          Date.now() - Date.parse(lastDigestPush.sent_at) < MIN_GAP_HOURS * 3600000) {
         continue;
       }
 
       // Rotate copy; never repeat yesterday's line.
       const lastStreakPush = mine
-        .filter((x) => x.push_type === 'streak')
+        .filter((x) => x.push_type === 'streak' && !isLastCall(x))
         .sort((a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at))[0];
       const lastIdx = (lastStreakPush?.meta as { lineIdx?: number } | null)?.lineIdx ?? -1;
       let idx = Math.floor(Math.random() * STREAK_LINES.length);
       if (idx === lastIdx) idx = (idx + 1) % STREAK_LINES.length;
 
+      // badge = the streak, same as the morning push (app/utils/notifications.ts).
+      const copy = kind === 'last' ? streakLastCallCopy(streak) : streakCopy(streak, idx);
       for (const token of byUser.get(p.id)!) {
         messages.push({
           to: token,
-          ...streakCopy(streak, idx),
+          ...copy,
           data: { type: 'streak' },
           sound: 'default',
+          badge: streak,
         });
       }
-      logRows.push({ user_id: p.id, push_type: 'streak', meta: { lineIdx: idx } });
+      logRows.push({
+        user_id: p.id,
+        push_type: 'streak',
+        meta: kind === 'last' ? { kind: 'last' } : { kind: 'evening', lineIdx: idx },
+      });
     }
 
     if (messages.length > 0) {

@@ -100,16 +100,31 @@ export function blindSpotCopy(lead: FeedArticle, side: "left" | "right"): PushCo
   };
 }
 
-// Rotated; the streak number lives in the title, so the lines don't repeat it.
+// Evening streak saver (Ayuka 11/03: louder, Duolingo-style; "a few minutes,
+// stay informed / get smarter"). Flame + number + loss framing in the title,
+// rotated body lines. Streaks reset at New York midnight (digestStreak.ts).
 export const STREAK_LINES = [
-  () => `Today's 5 stories take about ${DIGEST_MINUTES} minutes.`,
-  () => `It resets at midnight. 5 stories, about ${DIGEST_MINUTES} minutes.`,
-  (n: number) => `Day ${n + 1} is one digest away.`,
-  () => "Every side of today's news, in 5 stories.",
+  () => "Don't let it go to 0. A few minutes to stay informed.",
+  () => "A few minutes today keeps it alive. Get smarter, keep your streak.",
+  (n: number) => `Day ${n + 1} is a few minutes away.`,
+  () => "Every side of today's news, in a few minutes. Don't lose it.",
 ];
 
 export function streakCopy(streak: number, lineIdx: number): PushCopy {
-  return { title: `${streak}-day streak`, body: STREAK_LINES[lineIdx](streak) };
+  return {
+    title: `🔥 Your ${streak}-day streak ends tonight`,
+    body: STREAK_LINES[lineIdx](streak),
+  };
+}
+
+// Last call at 10:30pm New York, 90 minutes before the streak resets.
+export function streakLastCallCopy(streak: number): PushCopy {
+  return {
+    title: `⏰ 90 minutes left on your 🔥 ${streak}`,
+    body: streak >= 30
+      ? `Last call. Don't lose ${streak} days. A few minutes saves it.`
+      : "Last call. A few minutes saves your streak.",
+  };
 }
 
 // Mirrors the app's digest pick (app/lib/dailyDigest.ts scoreArticleForDigest
