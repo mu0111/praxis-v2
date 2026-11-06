@@ -35,21 +35,26 @@ interface MonthStats {
   sources: number;
   leftReads: number;
   rightReads: number;
+  /** Furthest-left and furthest-right outlet read this month, for the share line. */
+  leftmost: string | null;
+  rightmost: string | null;
 }
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const monthStartIso = () => {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 };
 
-interface MonthMapCardProps {
-  /** First name (or handle) of the reader, for the third-person share line. */
-  name?: string;
-}
+// The share link previews as a small icon row in iMessage (no big card under the
+// map image) and is counted as "share" in the /app click log.
+const SHARE_LINK = 'https://www.praxismedia.us/app?s=share';
+// Shorter everyday names for the share line.
+const SHARE_NAMES: Record<string, string> = { 'The Huffington Post': 'HuffPost', 'Wall Street Journal': 'the WSJ' };
+const shareName = (source: string) => SHARE_NAMES[source] ?? source;
 
-const APP_STORE_URL = 'https://apps.apple.com/app/id6742516634';
-
-export function MonthMapCard({ name }: MonthMapCardProps) {
+export function MonthMapCard() {
   const { user } = useAuth();
   const { c } = useTheme();
   const [dots, setDots] = useState<MonthDot[]>([]);
@@ -86,8 +91,15 @@ export function MonthMapCard({ name }: MonthMapCardProps) {
     const sources = new Set<string>();
     let leftReads = 0;
     let rightReads = 0;
+    let leftmost: { name: string; lean: number } | null = null;
+    let rightmost: { name: string; lean: number } | null = null;
     for (const [id, a] of byArticle) {
       if (a.source) sources.add(a.source.toLowerCase());
+      const lean = typeof a.bias === 'number' ? a.bias : a.x != null ? a.x * 100 : null;
+      if (a.source && lean != null) {
+        if (!leftmost || lean < leftmost.lean) leftmost = { name: a.source, lean };
+        if (!rightmost || lean > rightmost.lean) rightmost = { name: a.source, lean };
+      }
       if (typeof a.bias === 'number') {
         if (a.bias <= -15) leftReads += 1;
         if (a.bias >= 15) rightReads += 1;
@@ -97,7 +109,14 @@ export function MonthMapCard({ name }: MonthMapCardProps) {
       }
     }
     setDots(nextDots);
-    setStats({ reads: byArticle.size, sources: sources.size, leftReads, rightReads });
+    setStats({
+      reads: byArticle.size,
+      sources: sources.size,
+      leftReads,
+      rightReads,
+      leftmost: leftmost?.name ?? null,
+      rightmost: rightmost?.name ?? null,
+    });
   }, [user]);
 
   useFocusEffect(
@@ -124,13 +143,16 @@ export function MonthMapCard({ name }: MonthMapCardProps) {
   // react-native-view-shot and handed to the share sheet as an image, with
   // the line as the caption. Falls back to text only if the capture fails.
   const onShare = async () => {
-    // Caption in the website's voice (Ayuka's pick, 2026-09-21 msgs 1993/2029): the
-    // tagline, the reader's month in third person, the store link. Kept short because
-    // it rides under the image in the share sheet.
-    const whose = name ? `${name}'s month` : 'My month';
+    // One short first-person line under the image (Ayuka's pick, 2026-11-06 msg 4569):
+    // the sender is the reader, so no third person, and the outlet range only when
+    // the month really spans both sides. The link previews small (see SHARE_LINK).
+    const range =
+      bothSides && stats.leftmost && stats.rightmost && stats.leftmost !== stats.rightmost
+        ? `, ${shareName(stats.leftmost)} to ${shareName(stats.rightmost)}`
+        : '';
     const message =
-      `Pick your news. Know your bias. ${whose} on Praxis: ${stats.reads} stories, ` +
-      `${stats.sources} sources${bothSides ? ', both sides' : ''}. ${APP_STORE_URL}`;
+      `My ${MONTHS[new Date().getMonth()]} on Praxis: ${stats.reads} ${stats.reads === 1 ? 'story' : 'stories'} ` +
+      `from ${stats.sources} ${stats.sources === 1 ? 'outlet' : 'outlets'}${range}. ${SHARE_LINK}`;
     let url: string | null = null;
     try {
       if (shotRef.current) {
