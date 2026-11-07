@@ -95,6 +95,7 @@ function RootRedirect() {
     const inArticle = segments[0] === 'article';
     const inChat = segments[0] === 'chat';
     const inStory = segments[0] === 'story';
+    const inAcross = segments[0] === 'across';
     const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'search', 'social', 'topics']);
     const inTabAlias = tabAliasSegments.has(segments[0] ?? '');
     // Settings → Reset Onboarding sends a signed-in user to (auth)/onboarding;
@@ -103,7 +104,7 @@ function RootRedirect() {
     // The recovery link signs the user in before they choose a new password;
     // keep them on the reset screen instead of bouncing to the feed.
     const inPasswordReset = (inAuth || (segments as string[])[0] === 'auth') && (segments as string[])[1] === 'reset-password';
-    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory || inOnboarding || inPasswordReset;
+    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory || inAcross || inOnboarding || inPasswordReset;
 
     if (!session && !isGuestMode) {
       if (!inAuth && !inPasswordReset) router.replace('/login');
@@ -133,7 +134,9 @@ function PushNotificationHandler() {
         // row "do pushes bring people back" is unanswerable (audit 9/19).
         void trackPushOpen(data.type, data.articleId ?? null);
       }
-      if (data?.type === 'follow' && data?.followerId) {
+      if (data?.view === 'sides' && Array.isArray(data.articleIds) && data.articleIds.length >= 2) {
+        router.push({ pathname: '/across', params: { ids: data.articleIds.join(','), topic: data.topic ?? '', summary: data.summary ?? '' } });
+      } else if (data?.type === 'follow' && data?.followerId) {
         router.push({ pathname: '/modal/user-profile', params: { userId: data.followerId } });
       } else if (data?.type === 'message' && data?.senderId) {
         router.push({ pathname: '/chat/[id]', params: { id: data.senderId } });
@@ -201,6 +204,7 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(auth)" options={{ animation: 'none' }} />
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="across" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="article/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="story/[id]" options={{ animation: 'none' }} />
             <Stack.Screen name="article/ai-analysis" options={{ presentation: 'modal' }} />

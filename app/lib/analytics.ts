@@ -28,6 +28,7 @@ export type Surface =
   | 'profile'
   | 'leaderboard'
   | 'graph'
+  | 'across_map'
   | 'other';
 export type BiasBucket = 'left' | 'center' | 'right';
 export type CompletionMethod = 'swipe' | 'open' | 'detail_page';

@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { Article } from '../../hooks/useFeedArticles';
 import { getSourceLogo } from '../../lib/sourceLogos';
+import { getPoliticalLeanLabel, getReportingTypeLabel } from '../../lib/mapLabels';
 
 export const getArticleCardDimensions = (
   screenWidth: number,
@@ -54,21 +55,6 @@ const SWIPE_DIAGNOSTICS =
 
 const clampCoord = (value?: number) => Math.max(-1, Math.min(1, value ?? 0));
 
-const getPoliticalLeanLabel = (value?: number) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'Political Lean';
-  if (value <= -0.6) return 'Left';
-  if (value <= -0.2) return 'Center Left';
-  if (value < 0.2) return 'Center';
-  if (value < 0.6) return 'Center Right';
-  return 'Right';
-};
-
-const getReportingTypeLabel = (value?: number) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'Reporting Type';
-  if (value <= -0.45) return 'Opinion';
-  if (value < 0.2) return 'Mixed';
-  return 'Hard News';
-};
 
 const formatTimeAgo = (dateString: string) => {
   const date = new Date(dateString);
