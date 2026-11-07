@@ -64,6 +64,7 @@ type Article = {
   score: number;
   x: number | null;
   y: number | null;
+  lede?: string | null;
   cluster_summary: string;
   reasons?: string[];
   topics?: string[];
@@ -182,15 +183,52 @@ function sameStory(a: Article, b: Article): boolean {
   return false;
 }
 
+// Names too common to tie two articles to one event.
+const ANCHOR_STOPWORDS = new Set([
+  "America", "American", "Americans", "Biden", "Congress", "Democrat",
+  "Democratic", "Democrats", "Donald", "GOP", "House", "Monday", "President",
+  "Republican", "Republicans", "Saturday", "Senate", "States", "Sunday",
+  "Thursday", "Trump", "Tuesday", "United", "Vance", "Wednesday", "Friday",
+  "January", "February", "March", "April", "May", "June", "July", "August",
+  "September", "October", "November", "December", "Nov", "Oct", "Sept",
+]);
+
+// The proper names in the summary's first sentence (the event itself:
+// "Florida", "Oval Office"), minus the sentence's opening word.
+function summaryAnchors(summary: string): Set<string> {
+  // Split after a word of 3+ lowercase letters so "Nov." or "U.S." never
+  // ends the sentence.
+  const first = summary.split(/(?<=[a-z]{3}[.!?])\s+(?=[A-Z])/)[0] ?? "";
+  const words = first.split(/\s+/).slice(1)
+    .map((w) => w.replace(/[’']s$/, "").replace(/[^A-Za-z]/g, ""))
+    .filter((w) => /^[A-Z][a-z]{2,}$/.test(w) && !ANCHOR_STOPWORDS.has(w));
+  return new Set(words);
+}
+
+// An article belongs to the event when its headline or lede names it.
+// Caught on the first dry run (11/07): "Tennessee votes to ban property
+// taxes" sat in the Florida property-tax cluster and shared words with it.
+function namesEvent(article: Article, anchors: Set<string>): boolean {
+  const text = `${article.title} ${article.lede ?? ""}`;
+  for (const word of text.split(/\s+/)) {
+    if (anchors.has(word.replace(/[’']s$/, "").replace(/[^A-Za-z]/g, ""))) return true;
+  }
+  return false;
+}
+
 // The three outlets on one story that sit farthest apart on the map: the
 // trio whose closest pair is farthest apart. Null unless the spread is real
-// (both sides of center, closest pair >= SIDES_MIN_SPREAD), every pair of
-// headlines shares a word and every headline matches the summary, which keeps
-// loose clusters (the 11/06 "elections" grab-bag) out. Left to right.
+// (both sides of center, closest pair >= SIDES_MIN_SPREAD). Only articles
+// that name the event count, every pair of headlines must share a word and
+// every headline must match the summary, which keeps loose clusters (the
+// 11/06 "elections" grab-bag) out. Left to right.
 function acrossTheMap(cluster: Cluster): Article[] | null {
+  const anchors = summaryAnchors(cluster.articles[0]?.cluster_summary ?? "");
+  if (anchors.size === 0) return null;
   const byPublisher = new Map<string, Article>();
   for (const article of cluster.articles) {
     if (typeof article.x !== "number" || typeof article.y !== "number") continue;
+    if (!namesEvent(article, anchors)) continue;
     const current = byPublisher.get(article.publisher);
     if (!current || article.score > current.score) {
       byPublisher.set(article.publisher, article);
@@ -638,14 +676,15 @@ serve(async (req) => {
       )
       .map((cluster) => ({ cluster, trio: acrossTheMap(cluster) }))
       .filter((c): c is { cluster: Cluster; trio: Article[] } => c.trio !== null)
+      // The topic line is the most central outlet's own headline; nothing
+      // here can write a neutral label (the project's OpenAI key is dead).
+      .map((c) => ({
+        ...c,
+        topic: [...c.trio].sort((a, b) => Math.abs(a.x ?? 0) - Math.abs(b.x ?? 0))[0]
+          .title.trim().replace(/[.\s]+$/, ""),
+      }))
       .sort((a, b) => b.cluster.maxScore - a.cluster.maxScore);
-    // The title is the most central outlet's own headline: the screen and
-    // the push need a topic, and there is no model call here to write one.
-    const sidesMessage = (cluster: Cluster, trio: Article[], to: string) => {
-      const central = [...trio].sort((a, b) =>
-        Math.abs(a.x ?? 0) - Math.abs(b.x ?? 0)
-      )[0];
-      const topic = central.title.trim().replace(/[.\s]+$/, "");
+    const sidesMessage = (cluster: Cluster, trio: Article[], topic: string, to: string) => {
       const names = trio.map((a) => a.publisher);
       return {
         to,
@@ -704,7 +743,7 @@ serve(async (req) => {
       if (sidesPick) {
         let line = "";
         for (const token of userTokens) {
-          const message = sidesMessage(sidesPick.cluster, sidesPick.trio, token);
+          const message = sidesMessage(sidesPick.cluster, sidesPick.trio, sidesPick.topic, token);
           line = message.body;
           messages.push(message);
           sides += 1;
@@ -717,7 +756,7 @@ serve(async (req) => {
             kind: "sides",
             cluster_id: sidesPick.cluster.id,
             article_ids: sidesPick.trio.map((a) => a.article_id),
-            title: sidesPick.trio.length ? sidesMessage(sidesPick.cluster, sidesPick.trio, "").title : "",
+            title: sidesPick.topic,
             line,
           },
         });
