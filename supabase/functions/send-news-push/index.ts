@@ -7,7 +7,8 @@ import {
   eveningCopy,
 } from "../_shared/pushFormat.ts";
 
-// Runs every 20 minutes. It sends, in order: the local 6pm edition,
+// Runs every 20 minutes. It sends, in order: the local 12:30 "3 stories"
+// push, the local 6pm edition (an "across the map" push on good days),
 // high-consensus breaking news, then one-sided-coverage blind spots.
 
 const corsHeaders = {
@@ -38,6 +39,21 @@ const ELECTION_CONTEST =
   /\b(midterms?|elections?|race|seat|governor|majority|control of (the )?(house|senate)|house control|senate control)\b/i;
 const RESULTS_MIN_PUBLISHERS = 3;
 const RESULTS_MAX_AGE_HOURS = 3;
+// Across the map (Ayuka, 2026-11-07): one story from the outlets that sit
+// farthest apart on the bias map, opened in its own swipe screen. It takes
+// the 6pm slot on days with a good spread, at most every other day.
+const SIDES_MAX_AGE_HOURS = 24;
+const SIDES_MIN_SCORE = 1.0;
+// Closest pair of the three must be at least this far apart on the map
+// (x and y both run -1..1), and the three must reach both sides of center.
+const SIDES_MIN_SPREAD = 0.5;
+const SIDES_SIDE_X = 0.2;
+const SIDES_EVERY_HOURS = 48;
+// "3 stories right now" (Ayuka, 2026-11-07): the day's three most-covered
+// stories at 12:30 local, only on days when there are three.
+const THREE_MAX_AGE_HOURS = 24;
+const THREE_MIN_PUBLISHERS = 2;
+const OPINION_Y = -0.45;
 
 type Article = {
   article_id: string;
@@ -47,6 +63,7 @@ type Article = {
   ts_pub: string;
   score: number;
   x: number | null;
+  y: number | null;
   cluster_summary: string;
   reasons?: string[];
   topics?: string[];
@@ -137,12 +154,100 @@ function parseForcedTime(
 
 async function chunkedExpoSend(messages: unknown[]): Promise<void> {
   for (let i = 0; i < messages.length; i += 100) {
-    await fetch("https://exp.host/--/api/v2/push/send", {
+    const response = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(messages.slice(i, i + 100)),
     });
+    // Tickets were never read, so a rejected push looked sent (2026-11-07).
+    // Log refusals; the function's logs are the only place they show up.
+    const tickets = await response.json().catch(() => null);
+    for (const ticket of tickets?.data ?? []) {
+      if (ticket?.status === "error") {
+        console.warn("[send-news-push] expo ticket error", JSON.stringify(ticket));
+      }
+    }
   }
+}
+
+function mapDistance(a: Article, b: Article): number {
+  return Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? 0) - (b.y ?? 0));
+}
+
+function sameStory(a: Article, b: Article): boolean {
+  const words = significantWords(a.title);
+  for (const word of significantWords(b.title)) {
+    if (words.has(word)) return true;
+  }
+  return false;
+}
+
+// The three outlets on one story that sit farthest apart on the map: the
+// trio whose closest pair is farthest apart. Null unless the spread is real
+// (both sides of center, closest pair >= SIDES_MIN_SPREAD), every pair of
+// headlines shares a word and every headline matches the summary, which keeps
+// loose clusters (the 11/06 "elections" grab-bag) out. Left to right.
+function acrossTheMap(cluster: Cluster): Article[] | null {
+  const byPublisher = new Map<string, Article>();
+  for (const article of cluster.articles) {
+    if (typeof article.x !== "number" || typeof article.y !== "number") continue;
+    const current = byPublisher.get(article.publisher);
+    if (!current || article.score > current.score) {
+      byPublisher.set(article.publisher, article);
+    }
+  }
+  const pool = [...byPublisher.values()];
+  let best: Article[] | null = null;
+  let bestMin = 0;
+  let bestSum = 0;
+  for (let i = 0; i < pool.length; i++) {
+    for (let j = i + 1; j < pool.length; j++) {
+      for (let k = j + 1; k < pool.length; k++) {
+        const trio = [pool[i], pool[j], pool[k]];
+        const d = [
+          mapDistance(trio[0], trio[1]),
+          mapDistance(trio[0], trio[2]),
+          mapDistance(trio[1], trio[2]),
+        ];
+        const min = Math.min(...d);
+        const sum = d[0] + d[1] + d[2];
+        if (min > bestMin || (min === bestMin && sum > bestSum)) {
+          best = trio;
+          bestMin = min;
+          bestSum = sum;
+        }
+      }
+    }
+  }
+  if (!best || bestMin < SIDES_MIN_SPREAD) return null;
+  if (!best.some((a) => (a.x ?? 0) <= -SIDES_SIDE_X)) return null;
+  if (!best.some((a) => (a.x ?? 0) >= SIDES_SIDE_X)) return null;
+  if (
+    !sameStory(best[0], best[1]) || !sameStory(best[0], best[2]) ||
+    !sameStory(best[1], best[2])
+  ) return null;
+  // Ayuka: "make sure before you send one that they're all related". Each
+  // headline must also share two significant words with the story summary.
+  const summary = significantWords(cluster.articles[0]?.cluster_summary ?? "");
+  for (const article of best) {
+    let shared = 0;
+    for (const word of significantWords(article.title)) {
+      if (summary.has(word)) shared += 1;
+    }
+    if (shared < 2) return null;
+  }
+  return best.sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+}
+
+// The headline a story is shown by in the 3-stories push: the shortest one
+// that is not an opinion piece, a column ("… | Name") or a video/podcast page.
+function plainHeadline(cluster: Cluster): Article {
+  const plain = cluster.articles.filter((a) =>
+    (a.y ?? 0) > OPINION_Y && !/\s\|\s/.test(a.title) &&
+    !/\b(video|podcast|live)\b\s*$/i.test(a.title) && !/^watch:/i.test(a.title)
+  );
+  const pool = plain.length > 0 ? plain : cluster.articles;
+  return [...pool].sort((a, b) => a.title.length - b.title.length)[0];
 }
 
 // The evening title is the lead's own strongest topic (see kicker). Looked
@@ -259,6 +364,8 @@ serve(async (req) => {
         JSON.stringify({
           sent: 0,
           news: 0,
+          three: 0,
+          sides: 0,
           breaking: 0,
           split: 0,
           guests: 0,
@@ -271,6 +378,8 @@ serve(async (req) => {
     }
 
     const eveningByUser = new Map<string, string[]>();
+    const middayByUser = new Map<string, string[]>();
+    const middayGuestTokens: string[] = [];
     const activeByUser = new Map<string, string[]>();
     const resultsByUser = new Map<string, string[]>();
     const electionDay = nyDateKey() === ELECTION_DAY;
@@ -285,12 +394,21 @@ serve(async (req) => {
       const time = forcedTime ?? localTime(token.timezone ?? FALLBACK_TIMEZONE);
       if (!time) continue;
       const evening = time.hour === 18 && time.minute < 20;
+      const midday = time.hour === 12 && time.minute >= 20 && time.minute < 40;
       const quiet = time.hour >= 22 || time.hour <= 6;
       if (!token.user_id) {
         if (evening && !ownedTokens.has(token.token)) {
           guestTokens.push(token.token);
         }
+        if (midday && !ownedTokens.has(token.token)) {
+          middayGuestTokens.push(token.token);
+        }
         continue;
+      }
+      if (midday) {
+        const list = middayByUser.get(token.user_id) ?? [];
+        list.push(token.token);
+        middayByUser.set(token.user_id, list);
       }
       if (evening) {
         const list = eveningByUser.get(token.user_id) ?? [];
@@ -312,6 +430,7 @@ serve(async (req) => {
     const userIds = [
       ...new Set([
         ...eveningByUser.keys(),
+        ...middayByUser.keys(),
         ...activeByUser.keys(),
         ...resultsByUser.keys(),
       ]),
@@ -350,6 +469,8 @@ serve(async (req) => {
       { user_id: string; push_type: string; meta: Record<string, unknown> }
     > = [];
     let news = 0;
+    let three = 0;
+    let sides = 0;
     let breaking = 0;
     let split = 0;
     let guests = 0;
@@ -400,6 +521,149 @@ serve(async (req) => {
             )
           ).length >= DAILY_CAP;
 
+    const pushesToday = (userId: string, rows: typeof recentPushes) =>
+      (rows ?? []).filter((row) =>
+        ["digest", "streak", "news", "breaking", "split"].includes(row.push_type) &&
+        nyDateKey(new Date(row.sent_at)) === today
+      ).length +
+      logRows.filter((row) =>
+        row.user_id === userId &&
+        ["digest", "streak", "news", "breaking", "split"].includes(row.push_type)
+      ).length;
+    // Clusters this user was pushed in the last 48 hours, any push type.
+    const seenClusters = (rows: typeof recentPushes) => {
+      const seen = new Set<string>();
+      for (const row of rows ?? []) {
+        const meta = (row.meta ?? {}) as Record<string, unknown>;
+        if (meta.cluster_id != null) seen.add(String(meta.cluster_id));
+        if (meta.cluster_id_2 != null) seen.add(String(meta.cluster_id_2));
+        if (Array.isArray(meta.cluster_ids)) {
+          for (const id of meta.cluster_ids) seen.add(String(id));
+        }
+      }
+      return seen;
+    };
+
+    // 0. 3 stories right now: the three most-covered fresh stories, distinct
+    // from each other and from what this user was already pushed. Needs a
+    // slot left for the 6pm edition, so only when at most one push went out.
+    const threeCandidates = clusters
+      .filter((cluster) =>
+        cluster.publishers.size >= THREE_MIN_PUBLISHERS &&
+        withinHours(cluster.newest, THREE_MAX_AGE_HOURS)
+      )
+      .sort((a, b) =>
+        b.publishers.size - a.publishers.size || b.maxScore - a.maxScore
+      );
+    const pickThree = (exclude: Set<string>, digestTexts: string[]) => {
+      const picked: Array<{ cluster: Cluster; article: Article }> = [];
+      for (const cluster of threeCandidates) {
+        if (exclude.has(cluster.id)) continue;
+        const article = plainHeadline(cluster);
+        if (sharesStoryWith(article.title, digestTexts)) continue;
+        if (picked.some((p) => sharesStoryWith(article.title, [p.article.title]))) continue;
+        picked.push({ cluster, article });
+        if (picked.length === 3) return picked;
+      }
+      return null;
+    };
+    const threeCopy = (picked: Array<{ article: Article }>) => ({
+      title: "3 stories right now",
+      body: picked.map((p, i) => `${i + 1}  ${p.article.title.trim()}`).join("\n"),
+    });
+    for (const profile of profiles ?? []) {
+      const userTokens = middayByUser.get(profile.id);
+      if (!userTokens || profile.notify_news === false) continue;
+      const rows = mine(profile.id);
+      if (pushesToday(profile.id, rows) > DAILY_CAP - 2) continue;
+      if (rows.some((row) =>
+        row.push_type === "news" && nyDateKey(new Date(row.sent_at)) === today &&
+        (row.meta as Record<string, unknown> | null)?.slot === "midday"
+      )) continue;
+      const picked = pickThree(seenClusters(rows), digestTextsFor(rows));
+      if (!picked || picked[0].cluster.publishers.size < 3) continue;
+      const copy = threeCopy(picked);
+      for (const token of userTokens) {
+        messages.push({
+          to: token,
+          ...copy,
+          data: {
+            type: "news",
+            articleId: picked[0].article.article_id,
+            clusterId: picked[0].article.cluster_id,
+          },
+          sound: "default",
+        });
+        three += 1;
+      }
+      logRows.push({
+        user_id: profile.id,
+        push_type: "news",
+        meta: {
+          slot: "midday",
+          kind: "three",
+          cluster_id: picked[0].article.cluster_id,
+          cluster_ids: picked.map((p) => p.article.cluster_id),
+          article_ids: picked.map((p) => p.article.article_id),
+          line: copy.body,
+        },
+      });
+    }
+    {
+      const picked = middayGuestTokens.length > 0 ? pickThree(new Set(), []) : null;
+      if (picked && picked[0].cluster.publishers.size >= 3) {
+        const copy = threeCopy(picked);
+        for (const token of middayGuestTokens) {
+          messages.push({
+            to: token,
+            ...copy,
+            data: {
+              type: "news",
+              articleId: picked[0].article.article_id,
+              clusterId: picked[0].article.cluster_id,
+            },
+            sound: "default",
+          });
+          three += 1;
+          guests += 1;
+        }
+      }
+    }
+
+    // Across the map candidates for the 6pm slot, best spread first.
+    const sidesCandidates = clusters
+      .filter((cluster) =>
+        cluster.maxScore >= SIDES_MIN_SCORE &&
+        withinHours(cluster.newest, SIDES_MAX_AGE_HOURS)
+      )
+      .map((cluster) => ({ cluster, trio: acrossTheMap(cluster) }))
+      .filter((c): c is { cluster: Cluster; trio: Article[] } => c.trio !== null)
+      .sort((a, b) => b.cluster.maxScore - a.cluster.maxScore);
+    // The title is the most central outlet's own headline: the screen and
+    // the push need a topic, and there is no model call here to write one.
+    const sidesMessage = (cluster: Cluster, trio: Article[], to: string) => {
+      const central = [...trio].sort((a, b) =>
+        Math.abs(a.x ?? 0) - Math.abs(b.x ?? 0)
+      )[0];
+      const topic = central.title.trim().replace(/[.\s]+$/, "");
+      const names = trio.map((a) => a.publisher);
+      return {
+        to,
+        title: topic,
+        body: `${trio.length} outlets from across the map: ${names.join(", ")}. See how each covers it →`,
+        data: {
+          type: "news",
+          view: "sides",
+          articleId: trio[0].article_id,
+          articleIds: trio.map((a) => a.article_id),
+          clusterId: cluster.id,
+          topic,
+          summary: (cluster.articles[0]?.cluster_summary ?? "").slice(0, 400),
+        },
+        sound: "default",
+      };
+    };
+
     const isElection = (cluster: Cluster) =>
       electionDay && ELECTION_STORY.test(cluster.lead.title);
     const eveningCandidates = clusters
@@ -417,7 +681,10 @@ serve(async (req) => {
     for (const profile of profiles ?? []) {
       const userTokens = eveningByUser.get(profile.id);
       if (!userTokens || profile.notify_news === false) continue;
-      if (sentToday(mine(profile.id), "news")) continue;
+      if ((mine(profile.id) ?? []).some((row) =>
+        row.push_type === "news" && nyDateKey(new Date(row.sent_at)) === today &&
+        (row.meta as Record<string, unknown> | null)?.slot !== "midday"
+      )) continue;
       // Both stories of a past edition count as "already seen".
       const recentClusters = new Set<string>();
       for (const row of mine(profile.id)) {
@@ -426,6 +693,36 @@ serve(async (req) => {
         if (meta.cluster_id_2 != null) recentClusters.add(String(meta.cluster_id_2));
       }
       const digestTexts = digestTextsFor(mine(profile.id));
+      const sidesRecently = mine(profile.id).some((row) =>
+        (row.meta as Record<string, unknown> | null)?.kind === "sides" &&
+        Date.now() - Date.parse(row.sent_at) < SIDES_EVERY_HOURS * 3600000
+      );
+      const sidesPick = sidesRecently ? undefined : sidesCandidates.find(({ cluster, trio }) =>
+        !recentClusters.has(cluster.id) &&
+        !trio.some((a) => sharesStoryWith(a.title, digestTexts))
+      );
+      if (sidesPick) {
+        let line = "";
+        for (const token of userTokens) {
+          const message = sidesMessage(sidesPick.cluster, sidesPick.trio, token);
+          line = message.body;
+          messages.push(message);
+          sides += 1;
+        }
+        logRows.push({
+          user_id: profile.id,
+          push_type: "news",
+          meta: {
+            slot: "evening",
+            kind: "sides",
+            cluster_id: sidesPick.cluster.id,
+            article_ids: sidesPick.trio.map((a) => a.article_id),
+            title: sidesPick.trio.length ? sidesMessage(sidesPick.cluster, sidesPick.trio, "").title : "",
+            line,
+          },
+        });
+        continue;
+      }
       const selected = eveningCandidates.filter((cluster) =>
         !recentClusters.has(cluster.id) &&
         !sharesStoryWith(cluster.lead.title, digestTexts)
@@ -681,6 +978,8 @@ serve(async (req) => {
       JSON.stringify({
         sent: dry ? 0 : messages.length,
         news,
+        three,
+        sides,
         breaking,
         split,
         guests,
